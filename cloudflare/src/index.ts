@@ -289,6 +289,149 @@ async function mutateInventory<T>(
   return result;
 }
 
+// ---------- Family helpers ----------
+
+type Role = "owner" | "member";
+
+interface FamilyMember {
+  account_id: string;
+  account_name: string;
+  role: Role;
+  joined_at: string;
+}
+
+interface FamilyInfo {
+  family_id: string | null;
+  my_role: Role | null;
+  members: FamilyMember[];
+}
+
+async function getFamilyInfo(env: Env, accountId: string): Promise<FamilyInfo> {
+  const mine = await env.DB.prepare(
+    "SELECT family_id, role FROM family_memberships WHERE account_id = ?",
+  )
+    .bind(accountId)
+    .first<{ family_id: string; role: Role }>();
+  if (!mine) return { family_id: null, my_role: null, members: [] };
+  const rows = await env.DB.prepare(
+    `SELECT m.account_id, m.role, m.joined_at, a.name AS account_name
+       FROM family_memberships m
+       JOIN accounts a ON a.id = m.account_id
+      WHERE m.family_id = ?
+      ORDER BY m.joined_at`,
+  )
+    .bind(mine.family_id)
+    .all<FamilyMember>();
+  return {
+    family_id: mine.family_id,
+    my_role: mine.role,
+    members: rows.results ?? [],
+  };
+}
+
+// Returns [callerId, ...familyMemberIds]. Solo accounts return [callerId].
+async function accessibleAccountIds(env: Env, callerId: string): Promise<string[]> {
+  const fam = await getFamilyInfo(env, callerId);
+  if (fam.family_id === null) return [callerId];
+  const ids = fam.members.map((m) => m.account_id);
+  if (!ids.includes(callerId)) ids.push(callerId);
+  return ids;
+}
+
+interface OwnerLookup {
+  owner_id: string;
+  owner_name: string;
+  caller_role: Role | null; // null when solo
+}
+
+// Finds which accessible account's inventory contains the given appliance.
+// Throws 404 if not found anywhere the caller can see.
+async function resolveApplianceOwner(
+  env: Env,
+  callerId: string,
+  applianceId: string,
+): Promise<OwnerLookup> {
+  const fam = await getFamilyInfo(env, callerId);
+  const ids = fam.family_id ? fam.members.map((m) => m.account_id) : [callerId];
+  for (const id of ids) {
+    const inv = await getInventory(env, id);
+    if (inv.appliances.some((a) => a.id === applianceId)) {
+      const name =
+        fam.members.find((m) => m.account_id === id)?.account_name ??
+        (await accountName(env, id)) ??
+        "?";
+      return { owner_id: id, owner_name: name, caller_role: fam.my_role };
+    }
+  }
+  throw new HttpErr(404, `appliance ${applianceId} not found`);
+}
+
+async function resolveGroupOwner(
+  env: Env,
+  callerId: string,
+  groupId: string,
+): Promise<OwnerLookup> {
+  const fam = await getFamilyInfo(env, callerId);
+  const ids = fam.family_id ? fam.members.map((m) => m.account_id) : [callerId];
+  for (const id of ids) {
+    const inv = await getInventory(env, id);
+    if (inv.groups.some((g) => g.id === groupId)) {
+      const name =
+        fam.members.find((m) => m.account_id === id)?.account_name ??
+        (await accountName(env, id)) ??
+        "?";
+      return { owner_id: id, owner_name: name, caller_role: fam.my_role };
+    }
+  }
+  throw new HttpErr(404, `group ${groupId} not found`);
+}
+
+async function accountName(env: Env, accountId: string): Promise<string | null> {
+  const row = await env.DB.prepare("SELECT name FROM accounts WHERE id = ?")
+    .bind(accountId)
+    .first<{ name: string }>();
+  return row?.name ?? null;
+}
+
+// Solo accounts (no family) can always perform structural ops. Family members
+// can only perform structural ops if their role is "owner".
+function assertOwnerIfInFamily(fam: FamilyInfo): void {
+  if (fam.family_id !== null && fam.my_role !== "owner") {
+    throw new HttpErr(403, "only family owners can create or modify appliances and groups");
+  }
+}
+
+// Loads merged inventory across the caller + family members, tagging each
+// entity with owner_account_id / owner_account_name.
+async function getMergedInventory(
+  env: Env,
+  callerId: string,
+): Promise<{
+  appliances: (Appliance & { owner_account_id: string; owner_account_name: string })[];
+  groups: (Group & { owner_account_id: string; owner_account_name: string })[];
+  items: (InventoryItem & { owner_account_id: string; owner_account_name: string })[];
+  family: FamilyInfo;
+}> {
+  const fam = await getFamilyInfo(env, callerId);
+  const sources =
+    fam.family_id === null
+      ? [{ id: callerId, name: (await accountName(env, callerId)) ?? "" }]
+      : fam.members.map((m) => ({ id: m.account_id, name: m.account_name }));
+  const appliances: any[] = [];
+  const groups: any[] = [];
+  const items: any[] = [];
+  for (const src of sources) {
+    const inv = await getInventory(env, src.id);
+    for (const a of inv.appliances)
+      appliances.push({ ...a, owner_account_id: src.id, owner_account_name: src.name });
+    for (const g of inv.groups)
+      groups.push({ ...g, owner_account_id: src.id, owner_account_name: src.name });
+    for (const i of inv.items)
+      items.push({ ...i, owner_account_id: src.id, owner_account_name: src.name });
+  }
+  return { appliances, groups, items, family: fam };
+}
+
 // ---------- Error helpers ----------
 
 function jsonError(c: any, status: number, code: string, message: string): Response {
@@ -323,11 +466,14 @@ app.get("/api/auth/session", async (c) => {
   const account = await c.env.DB.prepare("SELECT name FROM accounts WHERE id = ?")
     .bind(session.account_id)
     .first<{ name: string }>();
+  const fam = await getFamilyInfo(c.env, session.account_id);
   return c.json({
     authenticated: true,
     csrf_token: session.csrf,
     account_id: session.account_id,
     account_name: account?.name ?? null,
+    family_id: fam.family_id,
+    family_role: fam.my_role,
   });
 });
 
@@ -359,6 +505,8 @@ app.post("/api/auth/signup", async (c) => {
       csrf_token: session.csrf,
       account_id: id,
       account_name: name,
+      family_id: null,
+      family_role: null,
     },
     201,
   );
@@ -383,11 +531,14 @@ app.post("/api/auth/login", async (c) => {
   }
   const session = await createSession(c.env, account.id);
   setSessionCookie(c, session.id, c.env);
+  const fam = await getFamilyInfo(c.env, account.id);
   return c.json({
     authenticated: true,
     csrf_token: session.csrf,
     account_id: account.id,
     account_name: account.name,
+    family_id: fam.family_id,
+    family_role: fam.my_role,
   });
 });
 
@@ -437,8 +588,8 @@ app.get("/api/appliances", async (c) => {
   const err = await requireAuth(c);
   if (err) return err;
   const session = c.get("session")!;
-  const inv = await getInventory(c.env, session.account_id);
-  return c.json({ appliances: inv.appliances });
+  const merged = await getMergedInventory(c.env, session.account_id);
+  return c.json({ appliances: merged.appliances });
 });
 
 app.post("/api/appliances", async (c) => {
@@ -447,6 +598,12 @@ app.post("/api/appliances", async (c) => {
   const session = c.get("session")!;
   const csrfErr = requireCsrf(c, session);
   if (csrfErr) return csrfErr;
+  try {
+    const fam = await getFamilyInfo(c.env, session.account_id);
+    assertOwnerIfInFamily(fam);
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
   const body = await c.req
     .json<{ name?: string; kind?: Kind; location?: string; description?: string }>()
     .catch(() => ({}));
@@ -477,14 +634,18 @@ app.get("/api/appliances/:id", async (c) => {
   if (err) return err;
   const session = c.get("session")!;
   const id = c.req.param("id");
-  const inv = await getInventory(c.env, session.account_id);
-  const appliance = inv.appliances.find((a) => a.id === id);
-  if (!appliance) return jsonError(c, 404, "not_found", `appliance ${id} not found`);
-  return c.json({
-    appliance,
-    groups: inv.groups.filter((g) => g.appliance_id === id),
-    items: inv.items.filter((i) => i.appliance_id === id),
-  });
+  try {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, id);
+    const inv = await getInventory(c.env, owner.owner_id);
+    const appliance = inv.appliances.find((a) => a.id === id)!;
+    return c.json({
+      appliance: { ...appliance, owner_account_id: owner.owner_id, owner_account_name: owner.owner_name },
+      groups: inv.groups.filter((g) => g.appliance_id === id),
+      items: inv.items.filter((i) => i.appliance_id === id),
+    });
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
 });
 
 app.patch("/api/appliances/:id", async (c) => {
@@ -503,7 +664,10 @@ app.patch("/api/appliances/:id", async (c) => {
     }>()
     .catch(() => ({}));
   try {
-    const updated = await mutateInventory(c.env, session.account_id, (inv) => {
+    const fam = await getFamilyInfo(c.env, session.account_id);
+    assertOwnerIfInFamily(fam);
+    const owner = await resolveApplianceOwner(c.env, session.account_id, id);
+    const updated = await mutateInventory(c.env, owner.owner_id, (inv) => {
       const a = inv.appliances.find((x) => x.id === id);
       if (!a) throw new HttpErr(404, `appliance ${id} not found`);
       if (body.name !== undefined) {
@@ -537,7 +701,23 @@ app.delete("/api/appliances/:id", async (c) => {
   const strategy = c.req.query("strategy") ?? "";
   const moveTo = c.req.query("move_to") ?? "";
   try {
-    await mutateInventory(c.env, session.account_id, (inv) => {
+    const fam = await getFamilyInfo(c.env, session.account_id);
+    assertOwnerIfInFamily(fam);
+    const owner = await resolveApplianceOwner(c.env, session.account_id, id);
+    // move_to must belong to the same owner — we don't support cross-owner
+    // transfers of appliance contents in v1.
+    if (strategy === "move" && moveTo) {
+      const destOwner = await resolveApplianceOwner(c.env, session.account_id, moveTo);
+      if (destOwner.owner_id !== owner.owner_id) {
+        return jsonError(
+          c,
+          400,
+          "bad_request",
+          "move target must belong to the same family member as the appliance being deleted",
+        );
+      }
+    }
+    await mutateInventory(c.env, owner.owner_id, (inv) => {
       if (!inv.appliances.some((a) => a.id === id)) {
         throw new HttpErr(404, `appliance ${id} not found`);
       }
@@ -588,11 +768,13 @@ app.get("/api/appliances/:id/items", async (c) => {
   if (err) return err;
   const session = c.get("session")!;
   const id = c.req.param("id");
-  const inv = await getInventory(c.env, session.account_id);
-  if (!inv.appliances.some((a) => a.id === id)) {
-    return jsonError(c, 404, "not_found", `appliance ${id} not found`);
+  try {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, id);
+    const inv = await getInventory(c.env, owner.owner_id);
+    return c.json({ items: inv.items.filter((i) => i.appliance_id === id) });
+  } catch (e) {
+    return httpErrorResponse(c, e);
   }
-  return c.json({ items: inv.items.filter((i) => i.appliance_id === id) });
 });
 
 app.post("/api/appliances/:id/items", async (c) => {
@@ -618,7 +800,8 @@ app.post("/api/appliances/:id/items", async (c) => {
     return jsonError(c, 400, "bad_request", trackingPart.err);
   }
   try {
-    const created = await mutateInventory(c.env, session.account_id, (inv) => {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
+    const created = await mutateInventory(c.env, owner.owner_id, (inv) => {
       if (!inv.appliances.some((a) => a.id === applianceId)) {
         throw new HttpErr(404, `appliance ${applianceId} not found`);
       }
@@ -669,7 +852,8 @@ app.patch("/api/appliances/:id/items/:item_id", async (c) => {
     return jsonError(c, 400, "bad_request", "expiration_date must be ISO-8601 (YYYY-MM-DD)");
   }
   try {
-    const updated = await mutateInventory(c.env, session.account_id, (inv) => {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
+    const updated = await mutateInventory(c.env, owner.owner_id, (inv) => {
       const item = inv.items.find((x) => x.id === itemId && x.appliance_id === applianceId);
       if (!item) throw new HttpErr(404, `item ${itemId} not found`);
       if (body.name !== undefined) {
@@ -714,7 +898,8 @@ app.delete("/api/appliances/:id/items/:item_id", async (c) => {
   const applianceId = c.req.param("id");
   const itemId = c.req.param("item_id");
   try {
-    await mutateInventory(c.env, session.account_id, (inv) => {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
+    await mutateInventory(c.env, owner.owner_id, (inv) => {
       const before = inv.items.length;
       inv.items = inv.items.filter(
         (x) => !(x.id === itemId && x.appliance_id === applianceId),
@@ -727,7 +912,7 @@ app.delete("/api/appliances/:id/items/:item_id", async (c) => {
     await c.env.DB.prepare(
       "DELETE FROM item_photos WHERE account_id = ? AND item_id = ?",
     )
-      .bind(session.account_id, itemId)
+      .bind(owner.owner_id, itemId)
       .run();
     return c.body(null, 204);
   } catch (e) {
@@ -749,7 +934,8 @@ app.post("/api/appliances/:id/items/:item_id/adjust", async (c) => {
     return jsonError(c, 400, "bad_request", "delta must be a finite number");
   }
   try {
-    const updated = await mutateInventory(c.env, session.account_id, (inv) => {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
+    const updated = await mutateInventory(c.env, owner.owner_id, (inv) => {
       const item = inv.items.find((x) => x.id === itemId && x.appliance_id === applianceId);
       if (!item) throw new HttpErr(404, `item ${itemId} not found`);
       if (item.tracking === "individual") {
@@ -807,7 +993,8 @@ async function packTransfer(
   const sourceStatus: PackStatus = direction === "open" ? "unopened" : "opened";
   const destStatus: PackStatus = direction === "open" ? "opened" : "unopened";
   try {
-    const result = await mutateInventory(c.env, session.account_id, (inv) => {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
+    const result = await mutateInventory(c.env, owner.owner_id, (inv) => {
       const sourceIdx = inv.items.findIndex(
         (x) => x.id === itemId && x.appliance_id === applianceId,
       );
@@ -913,7 +1100,7 @@ async function packTransfer(
       await c.env.DB.prepare(
         "DELETE FROM item_photos WHERE account_id = ? AND item_id = ?",
       )
-        .bind(session.account_id, result.photoCleanup)
+        .bind(owner.owner_id, result.photoCleanup)
         .run();
     }
     return c.json(result.payload);
@@ -928,8 +1115,8 @@ app.get("/api/groups", async (c) => {
   const err = await requireAuth(c);
   if (err) return err;
   const session = c.get("session")!;
-  const inv = await getInventory(c.env, session.account_id);
-  return c.json({ groups: inv.groups });
+  const merged = await getMergedInventory(c.env, session.account_id);
+  return c.json({ groups: merged.groups });
 });
 
 app.post("/api/groups", async (c) => {
@@ -945,7 +1132,10 @@ app.post("/api/groups", async (c) => {
   if (!body.appliance_id)
     return jsonError(c, 400, "bad_request", "appliance_id is required");
   try {
-    const created = await mutateInventory(c.env, session.account_id, (inv) => {
+    const fam = await getFamilyInfo(c.env, session.account_id);
+    assertOwnerIfInFamily(fam);
+    const owner = await resolveApplianceOwner(c.env, session.account_id, body.appliance_id);
+    const created = await mutateInventory(c.env, owner.owner_id, (inv) => {
       if (!inv.appliances.some((a) => a.id === body.appliance_id)) {
         throw new HttpErr(404, `appliance ${body.appliance_id} not found`);
       }
@@ -977,7 +1167,21 @@ app.patch("/api/groups/:id", async (c) => {
     .json<{ name?: string; description?: string | null; appliance_id?: string }>()
     .catch(() => ({}));
   try {
-    const updated = await mutateInventory(c.env, session.account_id, (inv) => {
+    const fam = await getFamilyInfo(c.env, session.account_id);
+    assertOwnerIfInFamily(fam);
+    const owner = await resolveGroupOwner(c.env, session.account_id, id);
+    if (body.appliance_id) {
+      const destOwner = await resolveApplianceOwner(c.env, session.account_id, body.appliance_id);
+      if (destOwner.owner_id !== owner.owner_id) {
+        return jsonError(
+          c,
+          400,
+          "bad_request",
+          "cannot move a group to an appliance owned by a different family member",
+        );
+      }
+    }
+    const updated = await mutateInventory(c.env, owner.owner_id, (inv) => {
       if (body.appliance_id && !inv.appliances.some((a) => a.id === body.appliance_id)) {
         throw new HttpErr(404, `appliance ${body.appliance_id} not found`);
       }
@@ -1008,7 +1212,10 @@ app.delete("/api/groups/:id", async (c) => {
   const strategy = c.req.query("strategy") ?? "";
   const moveToGroup = c.req.query("move_to_group") ?? "";
   try {
-    await mutateInventory(c.env, session.account_id, (inv) => {
+    const fam = await getFamilyInfo(c.env, session.account_id);
+    assertOwnerIfInFamily(fam);
+    const owner = await resolveGroupOwner(c.env, session.account_id, id);
+    await mutateInventory(c.env, owner.owner_id, (inv) => {
       if (!inv.groups.some((g) => g.id === id))
         throw new HttpErr(404, `group ${id} not found`);
       const hasChildren = inv.items.some((i) => i.group_id === id);
@@ -1057,11 +1264,12 @@ app.get("/api/items", async (c) => {
   const err = await requireAuth(c);
   if (err) return err;
   const session = c.get("session")!;
-  const inv = await getInventory(c.env, session.account_id);
+  const merged = await getMergedInventory(c.env, session.account_id);
   return c.json({
-    items: inv.items,
-    groups: inv.groups,
-    appliances: inv.appliances,
+    items: merged.items,
+    groups: merged.groups,
+    appliances: merged.appliances,
+    family: merged.family,
   });
 });
 
@@ -1160,7 +1368,8 @@ app.post("/api/appliances/:id/items/:item_id/photo", async (c) => {
     );
   }
   try {
-    const updated = await mutateInventory(c.env, session.account_id, (inv) => {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
+    const updated = await mutateInventory(c.env, owner.owner_id, (inv) => {
       const item = inv.items.find(
         (x) => x.id === itemId && x.appliance_id === applianceId,
       );
@@ -1175,7 +1384,7 @@ app.post("/api/appliances/:id/items/:item_id/photo", async (c) => {
        ON CONFLICT(account_id, item_id) DO UPDATE
          SET data = excluded.data, updated_at = excluded.updated_at`,
     )
-      .bind(session.account_id, itemId, bytes, nowIso())
+      .bind(owner.owner_id, itemId, bytes, nowIso())
       .run();
     return c.json(updated);
   } catch (e) {
@@ -1189,14 +1398,21 @@ app.get("/api/appliances/:id/items/:item_id/photo", async (c) => {
   const session = c.get("session")!;
   const applianceId = c.req.param("id");
   const itemId = c.req.param("item_id");
-  const inv = await getInventory(c.env, session.account_id);
+  let ownerId: string;
+  try {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
+    ownerId = owner.owner_id;
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
+  const inv = await getInventory(c.env, ownerId);
   if (!inv.items.some((x) => x.id === itemId && x.appliance_id === applianceId)) {
     return jsonError(c, 404, "not_found", `item ${itemId} not found`);
   }
   const row = await c.env.DB.prepare(
     "SELECT data FROM item_photos WHERE account_id = ? AND item_id = ?",
   )
-    .bind(session.account_id, itemId)
+    .bind(ownerId, itemId)
     .first<Record<string, unknown>>();
   if (!row) return jsonError(c, 404, "not_found", "photo not found");
   const raw = (row as any).data;
@@ -1239,7 +1455,8 @@ app.delete("/api/appliances/:id/items/:item_id/photo", async (c) => {
   const applianceId = c.req.param("id");
   const itemId = c.req.param("item_id");
   try {
-    await mutateInventory(c.env, session.account_id, (inv) => {
+    const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
+    await mutateInventory(c.env, owner.owner_id, (inv) => {
       const item = inv.items.find(
         (x) => x.id === itemId && x.appliance_id === applianceId,
       );
@@ -1250,13 +1467,415 @@ app.delete("/api/appliances/:id/items/:item_id/photo", async (c) => {
     await c.env.DB.prepare(
       "DELETE FROM item_photos WHERE account_id = ? AND item_id = ?",
     )
-      .bind(session.account_id, itemId)
+      .bind(owner.owner_id, itemId)
       .run();
     return c.body(null, 204);
   } catch (e) {
     return httpErrorResponse(c, e);
   }
 });
+
+// ---------- Routes: families ----------
+
+// GET /api/family — current family (members + my role) + pending invitations
+// in both directions. If the caller isn't in a family, family_id is null and
+// members is empty — they can still receive incoming invitations.
+app.get("/api/family", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const fam = await getFamilyInfo(c.env, session.account_id);
+
+  // Incoming invitations: ones addressed to me and still pending.
+  const incomingRows = await c.env.DB.prepare(
+    `SELECT i.id, i.family_id, i.created_at,
+            inviter.name AS inviter_account_name,
+            inviter.id   AS inviter_account_id
+       FROM family_invitations i
+       JOIN accounts inviter ON inviter.id = i.inviter_account_id
+      WHERE i.invitee_account_id = ? AND i.status = 'pending'
+      ORDER BY i.created_at DESC`,
+  )
+    .bind(session.account_id)
+    .all<{
+      id: string;
+      family_id: string;
+      created_at: string;
+      inviter_account_name: string;
+      inviter_account_id: string;
+    }>();
+  // For each incoming invitation, also return a lightweight member list so
+  // the invitee can see who else is in the family before accepting.
+  const incoming = await Promise.all(
+    (incomingRows.results ?? []).map(async (row) => {
+      const members = await c.env.DB.prepare(
+        `SELECT m.account_id, m.role, a.name AS account_name
+           FROM family_memberships m
+           JOIN accounts a ON a.id = m.account_id
+          WHERE m.family_id = ?
+          ORDER BY m.joined_at`,
+      )
+        .bind(row.family_id)
+        .all<{ account_id: string; role: Role; account_name: string }>();
+      return { ...row, members: members.results ?? [] };
+    }),
+  );
+
+  // Outgoing invitations: ones I sent that are still pending. Only members of
+  // the family can see them (and in practice only owners can create them).
+  let outgoing: Array<{
+    id: string;
+    invitee_account_id: string;
+    invitee_account_name: string;
+    created_at: string;
+    status: string;
+  }> = [];
+  if (fam.family_id) {
+    const rows = await c.env.DB.prepare(
+      `SELECT i.id, i.invitee_account_id, i.created_at, i.status,
+              a.name AS invitee_account_name
+         FROM family_invitations i
+         JOIN accounts a ON a.id = i.invitee_account_id
+        WHERE i.family_id = ? AND i.status = 'pending'
+        ORDER BY i.created_at DESC`,
+    )
+      .bind(fam.family_id)
+      .all<typeof outgoing[number]>();
+    outgoing = rows.results ?? [];
+  }
+
+  return c.json({
+    family_id: fam.family_id,
+    my_role: fam.my_role,
+    members: fam.members,
+    incoming_invitations: incoming,
+    outgoing_invitations: outgoing,
+  });
+});
+
+// POST /api/family/invite  { account_name }
+// If caller isn't in a family yet, creates a new one with them as owner.
+// Otherwise caller must be an owner of their family.
+app.post("/api/family/invite", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const body = await c.req.json<{ account_name?: string }>().catch(() => ({}));
+  const name = validateName(body.account_name);
+  if (!name) return jsonError(c, 400, "bad_request", "account_name is required");
+
+  const invitee = await c.env.DB.prepare("SELECT id FROM accounts WHERE name_lower = ?")
+    .bind(name.toLowerCase())
+    .first<{ id: string }>();
+  if (!invitee) return jsonError(c, 404, "not_found", "no account with that name");
+  if (invitee.id === session.account_id)
+    return jsonError(c, 400, "bad_request", "you cannot invite yourself");
+
+  let fam = await getFamilyInfo(c.env, session.account_id);
+  if (fam.family_id && fam.my_role !== "owner") {
+    return jsonError(c, 403, "forbidden", "only family owners can invite new members");
+  }
+  // Create a new family if the caller isn't in one yet.
+  if (!fam.family_id) {
+    const familyId = newId();
+    const now = nowIso();
+    await c.env.DB.prepare(
+      "INSERT INTO families (id, created_at, updated_at) VALUES (?, ?, ?)",
+    )
+      .bind(familyId, now, now)
+      .run();
+    await c.env.DB.prepare(
+      `INSERT INTO family_memberships (family_id, account_id, role, joined_at)
+       VALUES (?, ?, 'owner', ?)`,
+    )
+      .bind(familyId, session.account_id, now)
+      .run();
+    fam = await getFamilyInfo(c.env, session.account_id);
+  }
+
+  // Reject duplicate pending invitation from this same family to this invitee.
+  const dupe = await c.env.DB.prepare(
+    `SELECT id FROM family_invitations
+      WHERE family_id = ? AND invitee_account_id = ? AND status = 'pending'`,
+  )
+    .bind(fam.family_id, invitee.id)
+    .first();
+  if (dupe) return jsonError(c, 409, "conflict", "that account already has a pending invitation");
+
+  const invitationId = newId();
+  await c.env.DB.prepare(
+    `INSERT INTO family_invitations
+       (id, family_id, inviter_account_id, invitee_account_id, created_at, status)
+     VALUES (?, ?, ?, ?, ?, 'pending')`,
+  )
+    .bind(invitationId, fam.family_id, session.account_id, invitee.id, nowIso())
+    .run();
+  return c.json({ invitation_id: invitationId, family_id: fam.family_id }, 201);
+});
+
+// POST /api/family/invitations/:id/accept  { leave_current?: boolean }
+// If the caller is already in a family, requires leave_current=true (and the
+// caller must be allowed to leave — see /api/family/leave rules).
+app.post("/api/family/invitations/:id/accept", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const invitationId = c.req.param("id");
+  const body = await c.req.json<{ leave_current?: boolean }>().catch(() => ({}));
+  try {
+    const inv = await c.env.DB.prepare(
+      "SELECT family_id, invitee_account_id, status FROM family_invitations WHERE id = ?",
+    )
+      .bind(invitationId)
+      .first<{ family_id: string; invitee_account_id: string; status: string }>();
+    if (!inv) throw new HttpErr(404, "invitation not found");
+    if (inv.invitee_account_id !== session.account_id)
+      throw new HttpErr(403, "this invitation is not addressed to you");
+    if (inv.status !== "pending")
+      throw new HttpErr(409, `invitation is ${inv.status}`);
+
+    const current = await getFamilyInfo(c.env, session.account_id);
+    if (current.family_id && current.family_id !== inv.family_id) {
+      if (!body.leave_current) {
+        return jsonError(
+          c,
+          409,
+          "already_in_family",
+          "you are already in a family; set leave_current to true to switch",
+        );
+      }
+      await leaveFamilyInternal(c.env, session.account_id);
+    } else if (current.family_id === inv.family_id) {
+      // Already a member; just mark invitation accepted and return.
+      await c.env.DB.prepare(
+        "UPDATE family_invitations SET status = 'accepted' WHERE id = ?",
+      )
+        .bind(invitationId)
+        .run();
+      return c.body(null, 204);
+    }
+
+    await c.env.DB.prepare(
+      `INSERT INTO family_memberships (family_id, account_id, role, joined_at)
+       VALUES (?, ?, 'member', ?)`,
+    )
+      .bind(inv.family_id, session.account_id, nowIso())
+      .run();
+    await c.env.DB.prepare(
+      "UPDATE family_invitations SET status = 'accepted' WHERE id = ?",
+    )
+      .bind(invitationId)
+      .run();
+    // Any other pending invites addressed to this account are now stale.
+    await c.env.DB.prepare(
+      `UPDATE family_invitations SET status = 'cancelled'
+        WHERE invitee_account_id = ? AND status = 'pending' AND id <> ?`,
+    )
+      .bind(session.account_id, invitationId)
+      .run();
+    return c.body(null, 204);
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
+});
+
+app.post("/api/family/invitations/:id/decline", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const invitationId = c.req.param("id");
+  try {
+    const inv = await c.env.DB.prepare(
+      "SELECT invitee_account_id, status FROM family_invitations WHERE id = ?",
+    )
+      .bind(invitationId)
+      .first<{ invitee_account_id: string; status: string }>();
+    if (!inv) throw new HttpErr(404, "invitation not found");
+    if (inv.invitee_account_id !== session.account_id)
+      throw new HttpErr(403, "this invitation is not addressed to you");
+    if (inv.status !== "pending") return c.body(null, 204);
+    await c.env.DB.prepare(
+      "UPDATE family_invitations SET status = 'declined' WHERE id = ?",
+    )
+      .bind(invitationId)
+      .run();
+    return c.body(null, 204);
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
+});
+
+// Cancel a sent invitation (inviter or invitee may both do this).
+app.delete("/api/family/invitations/:id", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const invitationId = c.req.param("id");
+  try {
+    const inv = await c.env.DB.prepare(
+      `SELECT family_id, inviter_account_id, invitee_account_id, status
+         FROM family_invitations WHERE id = ?`,
+    )
+      .bind(invitationId)
+      .first<{
+        family_id: string;
+        inviter_account_id: string;
+        invitee_account_id: string;
+        status: string;
+      }>();
+    if (!inv) throw new HttpErr(404, "invitation not found");
+    if (
+      inv.inviter_account_id !== session.account_id &&
+      inv.invitee_account_id !== session.account_id
+    ) {
+      // Also allow any current owner of the family to cancel.
+      const myMembership = await c.env.DB.prepare(
+        `SELECT role FROM family_memberships
+          WHERE family_id = ? AND account_id = ?`,
+      )
+        .bind(inv.family_id, session.account_id)
+        .first<{ role: Role }>();
+      if (!myMembership || myMembership.role !== "owner") {
+        throw new HttpErr(403, "you cannot cancel this invitation");
+      }
+    }
+    if (inv.status !== "pending") return c.body(null, 204);
+    await c.env.DB.prepare(
+      "UPDATE family_invitations SET status = 'cancelled' WHERE id = ?",
+    )
+      .bind(invitationId)
+      .run();
+    return c.body(null, 204);
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
+});
+
+// POST /api/family/leave
+app.post("/api/family/leave", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  try {
+    await leaveFamilyInternal(c.env, session.account_id);
+    return c.body(null, 204);
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
+});
+
+// Change a family member's role. Owner-only.
+app.put("/api/family/members/:account_id/role", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const targetId = c.req.param("account_id");
+  const body = await c.req.json<{ role?: Role }>().catch(() => ({}));
+  if (body.role !== "owner" && body.role !== "member") {
+    return jsonError(c, 400, "bad_request", "role must be 'owner' or 'member'");
+  }
+  try {
+    const fam = await getFamilyInfo(c.env, session.account_id);
+    if (!fam.family_id || fam.my_role !== "owner")
+      throw new HttpErr(403, "only owners can change roles");
+    const target = fam.members.find((m) => m.account_id === targetId);
+    if (!target) throw new HttpErr(404, "that account is not in your family");
+    if (target.role === body.role) return c.body(null, 204);
+    if (body.role === "member") {
+      const ownerCount = fam.members.filter((m) => m.role === "owner").length;
+      if (ownerCount <= 1)
+        throw new HttpErr(400, "promote another member to owner first");
+    }
+    await c.env.DB.prepare(
+      "UPDATE family_memberships SET role = ? WHERE family_id = ? AND account_id = ?",
+    )
+      .bind(body.role, fam.family_id, targetId)
+      .run();
+    return c.body(null, 204);
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
+});
+
+// Kick a family member. Owner-only. Cannot kick self; use /leave.
+app.delete("/api/family/members/:account_id", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const targetId = c.req.param("account_id");
+  try {
+    if (targetId === session.account_id)
+      throw new HttpErr(400, "use /api/family/leave to leave your own family");
+    const fam = await getFamilyInfo(c.env, session.account_id);
+    if (!fam.family_id || fam.my_role !== "owner")
+      throw new HttpErr(403, "only owners can remove members");
+    const target = fam.members.find((m) => m.account_id === targetId);
+    if (!target) throw new HttpErr(404, "that account is not in your family");
+    if (target.role === "owner") {
+      const ownerCount = fam.members.filter((m) => m.role === "owner").length;
+      if (ownerCount <= 1)
+        throw new HttpErr(400, "cannot remove the last owner — demote them first");
+    }
+    await c.env.DB.prepare(
+      "DELETE FROM family_memberships WHERE family_id = ? AND account_id = ?",
+    )
+      .bind(fam.family_id, targetId)
+      .run();
+    await maybeDissolveFamily(c.env, fam.family_id);
+    return c.body(null, 204);
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
+});
+
+// Shared leave logic — used by /leave and by accept-with-leave_current.
+async function leaveFamilyInternal(env: Env, accountId: string): Promise<void> {
+  const fam = await getFamilyInfo(env, accountId);
+  if (!fam.family_id) throw new HttpErr(400, "you are not in a family");
+  const otherMembers = fam.members.filter((m) => m.account_id !== accountId);
+  if (otherMembers.length > 0) {
+    // Last owner can't leave while members remain — must promote first.
+    const otherOwners = otherMembers.filter((m) => m.role === "owner");
+    if (fam.my_role === "owner" && otherOwners.length === 0) {
+      throw new HttpErr(
+        400,
+        "promote another member to owner before leaving the family",
+      );
+    }
+  }
+  await env.DB.prepare(
+    "DELETE FROM family_memberships WHERE family_id = ? AND account_id = ?",
+  )
+    .bind(fam.family_id, accountId)
+    .run();
+  await maybeDissolveFamily(env, fam.family_id);
+}
+
+async function maybeDissolveFamily(env: Env, familyId: string): Promise<void> {
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM family_memberships WHERE family_id = ?",
+  )
+    .bind(familyId)
+    .first<{ n: number }>();
+  if (!row || row.n === 0) {
+    // Also cancels any pending invitations via ON DELETE CASCADE.
+    await env.DB.prepare("DELETE FROM families WHERE id = ?").bind(familyId).run();
+  }
+}
 
 // ---------- Static asset fallback ----------
 // Hono routes handle everything under /api/*. For any other path we let the

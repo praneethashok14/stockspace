@@ -540,6 +540,10 @@
       busyItems: new Set(),
       installPromptAvailable: false,
       isInstalled: false,
+      // Family context: null if solo, "owner" or "member" otherwise.
+      familyId: null,
+      familyRole: null,
+      family: null, // { family_id, my_role, members, incoming_invitations, outgoing_invitations }
     };
 
     // Captured BeforeInstallPromptEvent from Chrome/Edge/Samsung Internet so
@@ -659,6 +663,8 @@
           state.csrfToken = sess.csrf_token || null;
           state.accountId = sess.account_id || null;
           state.accountName = sess.account_name || null;
+          state.familyId = sess.family_id || null;
+          state.familyRole = sess.family_role || null;
           await reloadInventory();
         }
       } catch (_) {
@@ -673,6 +679,8 @@
       state.csrfToken = resp.csrf_token || null;
       state.accountId = resp.account_id || null;
       state.accountName = resp.account_name || null;
+      state.familyId = null;
+      state.familyRole = null;
       try {
         await reloadInventory();
       } catch (err) {
@@ -693,6 +701,8 @@
       state.csrfToken = resp.csrf_token || null;
       state.accountId = resp.account_id || null;
       state.accountName = resp.account_name || null;
+      state.familyId = resp.family_id || null;
+      state.familyRole = resp.family_role || null;
       try {
         await reloadInventory();
       } catch (err) {
@@ -744,6 +754,25 @@
       state.items = data.items || [];
       state.groups = data.groups || [];
       state.appliances = data.appliances || [];
+      if (data.family) {
+        state.familyId = data.family.family_id || null;
+        state.familyRole = data.family.my_role || null;
+      }
+    }
+
+    // Separately loads family details (members + invitations) for the
+    // Settings page.
+    async function reloadFamily() {
+      const data = await api("/api/family");
+      state.family = data;
+      state.familyId = data.family_id || null;
+      state.familyRole = data.my_role || null;
+    }
+
+    function canEditStructure() {
+      // Solo accounts (no family) and family Owners can edit appliances/groups.
+      // Members can only edit items.
+      return state.familyId === null || state.familyRole === "owner";
     }
 
     // ---------- rendering ----------
@@ -804,7 +833,12 @@
             h("button", {
               type: "button",
               "aria-current": state.view === view ? "page" : null,
-              onClick: () => { state.view = view; state.activeApplianceId = null; render(); },
+              onClick: () => {
+                state.view = view;
+                state.activeApplianceId = null;
+                if (view === "settings") state.family = null;
+                render();
+              },
               text: label,
             }),
           );
@@ -1063,12 +1097,19 @@
       main.appendChild(stats);
 
       if (state.appliances.length === 0) {
-        main.appendChild(emptyState(
-          "No appliances yet",
-          "Start by adding a fridge or freezer.",
-          () => { state.view = "appliances"; render(); },
-          "Add an appliance",
-        ));
+        if (canEditStructure()) {
+          main.appendChild(emptyState(
+            "No appliances yet",
+            "Start by adding a fridge or freezer.",
+            () => { state.view = "appliances"; render(); },
+            "Add an appliance",
+          ));
+        } else {
+          main.appendChild(emptyState(
+            "No appliances yet",
+            "Your family's owners haven't added any appliances.",
+          ));
+        }
         return main;
       }
 
@@ -1092,15 +1133,19 @@
       const grid = h("section", { class: "dash-grid", "aria-label": "Appliances" });
       for (const a of state.appliances) {
         const items = state.items.filter(i => i.appliance_id === a.id);
+        const topRow = [
+          h("strong", { text: a.name }),
+          h("span", { class: "pill", text: a.kind }),
+        ];
+        if (state.familyId && a.owner_account_name && a.owner_account_id !== state.accountId) {
+          topRow.push(h("span", { class: "pill accent", text: a.owner_account_name }));
+        }
         const card = h("button", {
           class: "card stack",
           style: "text-align:left;cursor:pointer;",
           onClick: () => { state.activeApplianceId = a.id; state.view = "appliance"; render(); },
         }, [
-          h("div", { class: "row" }, [
-            h("strong", { text: a.name }),
-            h("span", { class: "pill", text: a.kind }),
-          ]),
+          h("div", { class: "row" }, topRow),
           h("div", { class: "muted", text: items.length + " " + pluralize("item", items.length) }),
           a.location ? h("div", { class: "muted", text: a.location }) : null,
         ]);
@@ -1133,39 +1178,55 @@
     function renderAppliances() {
       const main = h("main", { class: "app" });
 
-      const header = h("div", { class: "row", style: "justify-content:space-between;margin-bottom:1rem" }, [
-        h("h2", { style: "margin:0", text: "Appliances" }),
-        h("button", { class: "primary", onClick: () => openApplianceDialog(), text: "+ Add appliance" }),
-      ]);
+      const canEdit = canEditStructure();
+      const headerKids = [h("h2", { style: "margin:0", text: "Appliances" })];
+      if (canEdit) {
+        headerKids.push(h("button", { class: "primary", onClick: () => openApplianceDialog(), text: "+ Add appliance" }));
+      }
+      const header = h("div", { class: "row", style: "justify-content:space-between;margin-bottom:1rem" }, headerKids);
       main.appendChild(header);
 
       if (state.appliances.length === 0) {
-        main.appendChild(emptyState(
-          "No appliances yet",
-          "Add your first fridge, freezer, or storage area.",
-          () => openApplianceDialog(),
-          "Add an appliance",
-        ));
+        if (canEdit) {
+          main.appendChild(emptyState(
+            "No appliances yet",
+            "Add your first fridge, freezer, or storage area.",
+            () => openApplianceDialog(),
+            "Add an appliance",
+          ));
+        } else {
+          main.appendChild(emptyState(
+            "No appliances yet",
+            "Your family's owners haven't added any appliances yet.",
+          ));
+        }
         return main;
       }
 
       const list = h("div", { class: "stack" });
       for (const a of state.appliances) {
         const itemCount = state.items.filter(i => i.appliance_id === a.id).length;
+        const metaKids = [
+          h("strong", { text: a.name }),
+          h("span", { class: "pill", text: a.kind }),
+        ];
+        if (state.familyId && a.owner_account_name && a.owner_account_id !== state.accountId) {
+          metaKids.push(h("span", { class: "pill accent", text: a.owner_account_name }));
+        }
+        const actionKids = [
+          h("button", { onClick: () => { state.activeApplianceId = a.id; state.view = "appliance"; render(); }, text: "Open" }),
+        ];
+        if (canEdit) {
+          actionKids.push(h("button", { onClick: () => openApplianceDialog(a), text: "Edit" }));
+          actionKids.push(h("button", { class: "danger", onClick: () => deleteApplianceFlow(a), text: "Delete" }));
+        }
         list.appendChild(h("div", { class: "card row", style: "justify-content:space-between;flex-wrap:wrap;gap:0.75rem" }, [
           h("div", {}, [
-            h("div", { class: "row" }, [
-              h("strong", { text: a.name }),
-              h("span", { class: "pill", text: a.kind }),
-            ]),
+            h("div", { class: "row" }, metaKids),
             a.location ? h("div", { class: "muted", text: a.location }) : null,
             h("div", { class: "muted", text: itemCount + " " + pluralize("item", itemCount) }),
           ]),
-          h("div", { class: "row" }, [
-            h("button", { onClick: () => { state.activeApplianceId = a.id; state.view = "appliance"; render(); }, text: "Open" }),
-            h("button", { onClick: () => openApplianceDialog(a), text: "Edit" }),
-            h("button", { class: "danger", onClick: () => deleteApplianceFlow(a), text: "Delete" }),
-          ]),
+          h("div", { class: "row" }, actionKids),
         ]));
       }
       main.appendChild(list);
@@ -1320,19 +1381,27 @@
         return main;
       }
 
+      const canEditA = canEditStructure();
+      const headerMetaKids = [
+        h("span", { class: "pill", text: a.kind }),
+      ];
+      if (a.location) headerMetaKids.push(h("span", { text: a.location }));
+      if (state.familyId && a.owner_account_name && a.owner_account_id !== state.accountId) {
+        headerMetaKids.push(h("span", { class: "pill accent", text: a.owner_account_name }));
+      }
+      const headerActionKids = [
+        h("button", { class: "primary", onClick: () => openItemDialog(null, a.id), text: "+ Add item" }),
+      ];
+      if (canEditA) {
+        headerActionKids.push(h("button", { onClick: () => openGroupDialog(null, a.id), text: "+ Add group" }));
+      }
       main.appendChild(h("div", { class: "row", style: "justify-content:space-between;margin-bottom:1rem" }, [
         h("div", {}, [
           h("button", { class: "ghost", onClick: () => { state.view = "appliances"; render(); }, text: "← All appliances" }),
           h("h2", { style: "margin:0.25rem 0 0", text: a.name }),
-          h("div", { class: "row muted" }, [
-            h("span", { class: "pill", text: a.kind }),
-            a.location ? h("span", { text: a.location }) : null,
-          ]),
+          h("div", { class: "row muted" }, headerMetaKids),
         ]),
-        h("div", { class: "row" }, [
-          h("button", { class: "primary", onClick: () => openItemDialog(null, a.id), text: "+ Add item" }),
-          h("button", { onClick: () => openGroupDialog(null, a.id), text: "+ Add group" }),
-        ]),
+        h("div", { class: "row" }, headerActionKids),
       ]));
 
       const items = state.items.filter(i => i.appliance_id === a.id);
@@ -1512,16 +1581,20 @@
       for (const g of groups) {
         if (!byGroup.has(g.id)) byGroup.set(g.id, []);
       }
+      const canEditG = canEditStructure();
       for (const [gid, groupItems] of byGroup) {
         const g = groupMap.get(gid);
+        const summaryActions = [
+          h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openItemDialog(null, g.appliance_id, g.id); }, text: "+ Variant" }),
+        ];
+        if (canEditG) {
+          summaryActions.push(h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openGroupDialog(g); }, text: "Edit" }));
+          summaryActions.push(h("button", { class: "ghost danger", onClick: (e) => { e.preventDefault(); e.stopPropagation(); deleteGroupFlow(g); }, text: "Delete" }));
+        }
         const summary = h("summary", {}, [
           h("strong", { text: g.name }),
           h("span", { class: "pill", text: groupItems.length + " " + pluralize("variant", groupItems.length) }),
-          h("div", { class: "row", style: "margin-left:auto" }, [
-            h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openItemDialog(null, g.appliance_id, g.id); }, text: "+ Variant" }),
-            h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openGroupDialog(g); }, text: "Edit" }),
-            h("button", { class: "ghost danger", onClick: (e) => { e.preventDefault(); e.stopPropagation(); deleteGroupFlow(g); }, text: "Delete" }),
-          ]),
+          h("div", { class: "row", style: "margin-left:auto" }, summaryActions),
         ]);
         const details = h("details", { class: "inv-group", open: true }, [summary]);
         if (groupItems.length === 0) {
@@ -1594,6 +1667,9 @@
       const appliance = state.appliances.find(a => a.id === item.appliance_id);
       const metaChildren = [];
       if (opts.showAppliance && appliance) metaChildren.push(h("span", { class: "pill", text: appliance.name }));
+      if (state.familyId && item.owner_account_name && item.owner_account_id !== state.accountId) {
+        metaChildren.push(h("span", { class: "pill accent", text: item.owner_account_name }));
+      }
       if (item.tracking === "individual") {
         metaChildren.push(h("span", { class: "pill", text: "individual" }));
       } else {
@@ -2321,6 +2397,8 @@
         ]),
       ]));
 
+      main.appendChild(renderFamilySection());
+
       main.appendChild(h("div", { class: "card stack" }, [
         h("h3", { style: "margin-top:0", text: "About" }),
         h("p", { class: "muted", text: "StockSpace stores all data on your own backend. Sessions expire after inactivity." }),
@@ -2328,6 +2406,219 @@
       ]));
 
       return main;
+    }
+
+    function renderFamilySection() {
+      // Fetch family details lazily when settings is opened.
+      if (state.family === null) {
+        withBusy("Loading family…", () => reloadFamily()).then(render).catch(() => {});
+        return h("div", { class: "card stack" }, [
+          h("h3", { style: "margin-top:0", text: "Family" }),
+          h("div", { class: "loading" }, [
+            h("span", { class: "spinner" }), h("span", { text: " Loading…" }),
+          ]),
+        ]);
+      }
+      const fam = state.family;
+      const children = [h("h3", { style: "margin-top:0", text: "Family" })];
+
+      if (fam.family_id) {
+        children.push(h("p", { class: "muted", text:
+          `You are ${fam.my_role === "owner" ? "an Owner" : "a Member"} of a family with ${fam.members.length} ${pluralize("person", fam.members.length)}.` }));
+        const list = h("div", { class: "stack" });
+        for (const m of fam.members) {
+          const isMe = m.account_id === state.accountId;
+          const rowKids = [
+            h("strong", { text: m.account_name + (isMe ? " (you)" : "") }),
+            h("span", { class: m.role === "owner" ? "pill accent" : "pill", text: m.role === "owner" ? "Owner" : "Member" }),
+          ];
+          if (fam.my_role === "owner" && !isMe) {
+            rowKids.push(h("div", { class: "row", style: "margin-left:auto;gap:0.3rem" }, [
+              m.role === "member"
+                ? h("button", { class: "ghost", onClick: () => changeMemberRole(m.account_id, "owner"), text: "Promote" })
+                : h("button", { class: "ghost", onClick: () => changeMemberRole(m.account_id, "member"), text: "Demote" }),
+              h("button", { class: "ghost danger", onClick: () => removeMember(m.account_id, m.account_name), text: "Remove" }),
+            ]));
+          }
+          list.appendChild(h("div", { class: "row", style: "gap:0.5rem;align-items:center;padding:0.5rem;border:1px solid var(--border);border-radius:var(--radius)" }, rowKids));
+        }
+        children.push(list);
+      } else {
+        children.push(h("p", { class: "muted", text:
+          "You're not in a family. Invite someone below to start one — you'll become the Owner." }));
+      }
+
+      // Invite form (solo accounts or owners).
+      if (!fam.family_id || fam.my_role === "owner") {
+        let inviteName = "";
+        const inviteErr = h("div", { class: "muted", role: "alert" });
+        const inviteInput = h("input", {
+          type: "text", placeholder: "Account name", maxlength: "60",
+          onInput: (e) => { inviteName = e.target.value; },
+        });
+        children.push(h("form", {
+          onSubmit: async (e) => {
+            e.preventDefault();
+            inviteErr.textContent = "";
+            if (!inviteName.trim()) { inviteErr.textContent = "Enter an account name."; return; }
+            await withBusy("Sending invite…", async () => {
+              try {
+                await api("/api/family/invite", { method: "POST", body: { account_name: inviteName.trim() } });
+                toast("Invite sent.", "success");
+                inviteInput.value = "";
+                inviteName = "";
+                await reloadFamily();
+                render();
+              } catch (err) {
+                inviteErr.textContent = err.message;
+              }
+            });
+          },
+        }, [
+          h("label", {}, ["Invite someone", inviteInput]),
+          inviteErr,
+          h("div", { class: "row", style: "justify-content:flex-end;margin-top:0.5rem" }, [
+            h("button", { class: "primary", type: "submit", text: "Send invite" }),
+          ]),
+        ]));
+      }
+
+      if (fam.outgoing_invitations && fam.outgoing_invitations.length > 0) {
+        const list = h("div", { class: "stack" });
+        for (const inv of fam.outgoing_invitations) {
+          list.appendChild(h("div", { class: "row", style: "justify-content:space-between;align-items:center;padding:0.5rem;border:1px solid var(--border);border-radius:var(--radius)" }, [
+            h("span", { text: `Waiting: ${inv.invitee_account_name}` }),
+            h("button", { class: "ghost danger", onClick: () => cancelInvitation(inv.id), text: "Cancel" }),
+          ]));
+        }
+        children.push(h("div", {}, [
+          h("h4", { style: "margin-bottom:0.5rem", text: "Pending invites you've sent" }),
+          list,
+        ]));
+      }
+
+      if (fam.incoming_invitations && fam.incoming_invitations.length > 0) {
+        const list = h("div", { class: "stack" });
+        for (const inv of fam.incoming_invitations) {
+          const memberNames = (inv.members || []).map(m => m.account_name + (m.role === "owner" ? " (Owner)" : "")).join(", ");
+          const headerText = fam.family_id && inv.family_id !== fam.family_id
+            ? `${inv.inviter_account_name} invited you to switch to their family`
+            : `${inv.inviter_account_name} invited you to join a family`;
+          list.appendChild(h("div", { class: "card stack" }, [
+            h("div", { text: headerText }),
+            memberNames ? h("div", { class: "muted", text: `Members: ${memberNames}` }) : null,
+            h("div", { class: "row" }, [
+              h("button", { class: "primary", onClick: () => acceptInvitation(inv.id, !!fam.family_id), text: fam.family_id ? "Accept (leave current)" : "Accept" }),
+              h("button", { onClick: () => declineInvitation(inv.id), text: "Decline" }),
+            ]),
+          ]));
+        }
+        children.push(h("div", {}, [
+          h("h4", { style: "margin-bottom:0.5rem", text: "Invitations for you" }),
+          list,
+        ]));
+      }
+
+      if (fam.family_id) {
+        children.push(h("div", { class: "row", style: "justify-content:flex-end;margin-top:1rem" }, [
+          h("button", { class: "ghost danger", onClick: () => leaveFamily(), text: "Leave family" }),
+        ]));
+      }
+
+      return h("div", { class: "card stack" }, children);
+    }
+
+    // ---------- family actions ----------
+
+    async function changeMemberRole(accountId, role) {
+      await withBusy("Updating role…", async () => {
+        try {
+          await api("/api/family/members/" + encodeURIComponent(accountId) + "/role",
+            { method: "PUT", body: { role } });
+          toast("Role updated.", "success");
+          await reloadFamily();
+          render();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    }
+
+    async function removeMember(accountId, name) {
+      if (!confirm(`Remove ${name} from the family?`)) return;
+      await withBusy("Removing member…", async () => {
+        try {
+          await api("/api/family/members/" + encodeURIComponent(accountId), { method: "DELETE" });
+          toast("Member removed.", "success");
+          await reloadFamily();
+          await reloadInventory();
+          render();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    }
+
+    async function cancelInvitation(id) {
+      await withBusy("Cancelling…", async () => {
+        try {
+          await api("/api/family/invitations/" + encodeURIComponent(id), { method: "DELETE" });
+          await reloadFamily();
+          render();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    }
+
+    async function acceptInvitation(id, leaveCurrent) {
+      await withBusy("Joining family…", async () => {
+        try {
+          await api("/api/family/invitations/" + encodeURIComponent(id) + "/accept",
+            { method: "POST", body: { leave_current: !!leaveCurrent } });
+          toast("Joined the family.", "success");
+          await reloadFamily();
+          await reloadInventory();
+          const sess = await api("/api/auth/session");
+          if (sess && sess.authenticated) {
+            state.familyId = sess.family_id || null;
+            state.familyRole = sess.family_role || null;
+          }
+          render();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    }
+
+    async function declineInvitation(id) {
+      await withBusy("Declining…", async () => {
+        try {
+          await api("/api/family/invitations/" + encodeURIComponent(id) + "/decline",
+            { method: "POST" });
+          await reloadFamily();
+          render();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    }
+
+    async function leaveFamily() {
+      if (!confirm("Leave this family? You'll lose access to shared appliances and items.")) return;
+      await withBusy("Leaving family…", async () => {
+        try {
+          await api("/api/family/leave", { method: "POST" });
+          toast("Left the family.", "success");
+          state.familyId = null;
+          state.familyRole = null;
+          state.family = null;
+          await reloadInventory();
+          render();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
     }
 
     // ---------- dialog + helpers ----------
