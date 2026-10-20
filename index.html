@@ -412,7 +412,7 @@
   <div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
   <div id="busy" class="loading" hidden style="position:fixed;top:0.6rem;right:0.6rem;z-index:200;padding:0.3rem 0.6rem;background:var(--surface);border:1px solid var(--border);border-radius:999px;box-shadow:var(--shadow)">
     <span class="spinner" aria-hidden="true"></span>
-    <span>Saving…</span>
+    <span id="busy-text">Working…</span>
   </div>
 
   <script>
@@ -503,16 +503,26 @@
       filters: { q: "", applianceId: "", category: "", tracking: "", packStatus: "", expiration: "" },
       sort: "name",
       busyCount: 0,
+      // Map of active op label -> number of in-flight ops with that label,
+      // so the busy pill can say "Deleting…"/"Signing in…" instead of a
+      // misleading "Saving…" for every operation.
+      busyLabels: new Map(),
       busyItems: new Set(),
     };
 
-    function withBusy(fn) {
+    const FALLBACK_BUSY_LABEL = "Working…";
+
+    function withBusy(label = FALLBACK_BUSY_LABEL, fn) {
       state.busyCount++;
+      state.busyLabels.set(label, (state.busyLabels.get(label) || 0) + 1);
       updateBusyIndicator();
       return Promise.resolve()
         .then(fn)
         .finally(() => {
           state.busyCount = Math.max(0, state.busyCount - 1);
+          const n = (state.busyLabels.get(label) || 0) - 1;
+          if (n <= 0) state.busyLabels.delete(label);
+          else state.busyLabels.set(label, n);
           updateBusyIndicator();
         });
     }
@@ -520,7 +530,16 @@
     function updateBusyIndicator() {
       const el = document.getElementById("busy");
       if (!el) return;
+      const text = document.getElementById("busy-text");
       el.hidden = state.busyCount === 0;
+      if (text) {
+        // With several concurrent ops, show a generic label.
+        const labels = Array.from(state.busyLabels.keys());
+        text.textContent =
+          state.busyCount > 1 && labels.length > 1
+            ? FALLBACK_BUSY_LABEL
+            : (labels[0] || FALLBACK_BUSY_LABEL);
+      }
     }
 
     // ---------- api ----------
@@ -820,7 +839,7 @@
           if (!name.trim()) { msg.textContent = "Please enter a name."; return; }
           if (!/^\d{4,12}$/.test(pin)) { msg.textContent = "PIN must be 4–12 digits."; return; }
           if (pin !== confirm) { msg.textContent = "PINs don't match."; return; }
-          await withBusy(async () => {
+          await withBusy("Creating account…", async () => {
             try {
               await signup(name.trim(), pin);
               toast(`Welcome, ${state.accountName}!`, "success");
@@ -883,7 +902,7 @@
           msg.textContent = "";
           if (!name || !name.trim()) { msg.textContent = "Enter your account name."; return; }
           if (!/^\d{4,12}$/.test(pin)) { msg.textContent = "Enter the 4–12 digit PIN."; return; }
-          await withBusy(async () => {
+          await withBusy("Signing in…", async () => {
             try {
               await login(name.trim(), pin);
               toast(`Welcome back, ${state.accountName}.`, "success");
@@ -1121,7 +1140,7 @@
             e.preventDefault();
             err.textContent = "";
             if (!data.name.trim()) { err.textContent = "Name is required."; return; }
-            await withBusy(async () => {
+            await withBusy("Saving…", async () => {
               try {
                 if (isEdit) {
                   await api("/api/appliances/" + encodeURIComponent(existing.id), {
@@ -1188,7 +1207,7 @@
       const totalChildren = items.length + groups.length;
       if (totalChildren === 0) {
         if (!confirm(`Delete "${appliance.name}"? This cannot be undone.`)) return;
-        await withBusy(async () => {
+        await withBusy("Deleting…", async () => {
           await api("/api/appliances/" + encodeURIComponent(appliance.id), { method: "DELETE" });
           await reloadInventory();
           toast("Appliance deleted.", "success");
@@ -1223,7 +1242,7 @@
               if (strategy === "move") {
                 if (!moveTo) { err.textContent = "Pick a destination appliance."; return; }
               }
-              await withBusy(async () => {
+              await withBusy("Deleting…", async () => {
                 try {
                   let url = "/api/appliances/" + encodeURIComponent(appliance.id) + "?strategy=" + strategy;
                   if (strategy === "move") url += "&move_to=" + encodeURIComponent(moveTo);
@@ -1748,7 +1767,7 @@
       const current = item.tracking === "individual" ? (item.quantity || 0) : (item.pack_count || 0);
       if (delta < 0 && current + delta <= 0) {
         state.busyItems.add(item.id);
-        await withBusy(async () => {
+        await withBusy("Deleting…", async () => {
           try {
             await api(
               "/api/appliances/" + encodeURIComponent(item.appliance_id) +
@@ -1767,7 +1786,7 @@
         return;
       }
       state.busyItems.add(item.id);
-      await withBusy(async () => {
+      await withBusy("Saving…", async () => {
         try {
           const updated = await api(
             "/api/appliances/" + encodeURIComponent(item.appliance_id) +
@@ -1790,7 +1809,7 @@
     async function packTransfer(item, direction, mode) {
       if (state.busyItems.has(item.id)) return;
       state.busyItems.add(item.id);
-      await withBusy(async () => {
+      await withBusy("Updating…", async () => {
         try {
           const path =
             (direction === "open" ? "open" : "close") +
@@ -1818,7 +1837,7 @@
 
     async function deleteItemFlow(item) {
       if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
-      await withBusy(async () => {
+      await withBusy("Deleting…", async () => {
         try {
           await api(
             "/api/appliances/" + encodeURIComponent(item.appliance_id) +
@@ -1956,7 +1975,7 @@
             err.textContent = "";
             if (!data.name.trim()) { err.textContent = "Name is required."; return; }
             if (!data.appliance_id) { err.textContent = "Pick an appliance."; return; }
-            await withBusy(async () => {
+            await withBusy("Saving…", async () => {
               try {
                 let savedItem;
                 if (isEdit) {
@@ -2107,7 +2126,7 @@
             err.textContent = "";
             if (!data.name.trim()) { err.textContent = "Name is required."; return; }
             if (!data.appliance_id) { err.textContent = "Pick an appliance."; return; }
-            await withBusy(async () => {
+            await withBusy("Saving…", async () => {
               try {
                 if (isEdit) {
                   await api("/api/groups/" + encodeURIComponent(existing.id), {
@@ -2154,7 +2173,7 @@
       const children = state.items.filter(i => i.group_id === group.id);
       if (children.length === 0) {
         if (!confirm(`Delete group "${group.name}"?`)) return;
-        await withBusy(async () => {
+        await withBusy("Deleting…", async () => {
           await api("/api/groups/" + encodeURIComponent(group.id), { method: "DELETE" });
           await reloadInventory();
           toast("Group deleted.", "success");
@@ -2187,7 +2206,7 @@
           { label: "Delete group", primary: true, danger: true, onClick: async () => {
               err.textContent = "";
               if (strategy === "move" && !moveToGroup) { err.textContent = "Pick a destination group."; return; }
-              await withBusy(async () => {
+              await withBusy("Deleting…", async () => {
                 try {
                   let url = "/api/groups/" + encodeURIComponent(group.id) + "?strategy=" + strategy;
                   if (strategy === "move") url += "&move_to_group=" + encodeURIComponent(moveToGroup);
@@ -2223,7 +2242,7 @@
             err.textContent = "";
             if (!/^\d{4,12}$/.test(next)) { err.textContent = "New PIN must be 4–12 digits."; return; }
             if (next !== confirm) { err.textContent = "New PINs don't match."; return; }
-            await withBusy(async () => {
+            await withBusy("Updating PIN…", async () => {
               try {
                 await changePin(current, next);
                 toast("PIN changed. Please unlock with your new PIN.", "success");
