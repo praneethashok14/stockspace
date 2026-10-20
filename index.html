@@ -7,9 +7,15 @@
   <title>StockSpace</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
-  <link rel="apple-touch-icon" href="/icons/icon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <meta name="theme-color" content="#0b5fff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="StockSpace">
   <style>
     :root {
       --bg: #f6f7fb;
@@ -531,7 +537,13 @@
       // misleading "Saving…" for every operation.
       busyLabels: new Map(),
       busyItems: new Set(),
+      installPromptAvailable: false,
+      isInstalled: false,
     };
+
+    // Captured BeforeInstallPromptEvent from Chrome/Edge/Samsung Internet so
+    // we can trigger the native install flow from an in-app button.
+    let deferredInstallPrompt = null;
 
     const FALLBACK_BUSY_LABEL = "Working…";
 
@@ -817,7 +829,20 @@
         text: currentTheme === "dark" ? "☾" : (currentTheme === "light" ? "☀" : "◐"),
       });
 
-      const header = h("header", { class: "app" }, [title, nav, themeBtn]);
+      // Install button (visible only when the browser has fired beforeinstallprompt
+      // and the app is not already installed). Tapping triggers the native prompt.
+      const extras = [themeBtn];
+      if (state.installPromptAvailable && !state.isInstalled) {
+        extras.unshift(h("button", {
+          type: "button",
+          class: "ghost",
+          title: "Install StockSpace",
+          onClick: triggerInstall,
+          text: "⬇ Install",
+        }));
+      }
+
+      const header = h("header", { class: "app" }, [title, nav, ...extras]);
       return header;
     }
 
@@ -2397,6 +2422,34 @@
       window.addEventListener("load", () => {
         navigator.serviceWorker.register("/service-worker.js").catch(() => {});
       });
+    }
+
+    // --- PWA install plumbing (Android Chrome / Edge / Samsung Internet) ---
+    if (window.matchMedia("(display-mode: standalone)").matches || navigator.standalone) {
+      state.isInstalled = true;
+    }
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      state.installPromptAvailable = true;
+      render();
+    });
+    window.addEventListener("appinstalled", () => {
+      deferredInstallPrompt = null;
+      state.installPromptAvailable = false;
+      state.isInstalled = true;
+      toast("StockSpace installed. Launch it from your home screen.", "success");
+      render();
+    });
+    async function triggerInstall() {
+      if (!deferredInstallPrompt) return;
+      try {
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+      } catch (_) { /* user dismissed */ }
+      deferredInstallPrompt = null;
+      state.installPromptAvailable = false;
+      render();
     }
 
     // Lock on tab hidden for a long time (defence in depth; server also expires sessions).
