@@ -393,11 +393,12 @@ async function accountName(env: Env, accountId: string): Promise<string | null> 
   return row?.name ?? null;
 }
 
-// Solo accounts (no family) can always perform structural ops. Family members
-// can only perform structural ops if their role is "owner".
+// Solo accounts (no family) can always perform appliance-level ops. Family
+// members can only create/edit/delete appliances if their role is "owner".
+// (Groups and items are editable by all family members.)
 function assertOwnerIfInFamily(fam: FamilyInfo): void {
   if (fam.family_id !== null && fam.my_role !== "owner") {
-    throw new HttpErr(403, "only family owners can create or modify appliances and groups");
+    throw new HttpErr(403, "only family owners can create or modify appliances");
   }
 }
 
@@ -1132,8 +1133,6 @@ app.post("/api/groups", async (c) => {
   if (!body.appliance_id)
     return jsonError(c, 400, "bad_request", "appliance_id is required");
   try {
-    const fam = await getFamilyInfo(c.env, session.account_id);
-    assertOwnerIfInFamily(fam);
     const owner = await resolveApplianceOwner(c.env, session.account_id, body.appliance_id);
     const created = await mutateInventory(c.env, owner.owner_id, (inv) => {
       if (!inv.appliances.some((a) => a.id === body.appliance_id)) {
@@ -1167,8 +1166,6 @@ app.patch("/api/groups/:id", async (c) => {
     .json<{ name?: string; description?: string | null; appliance_id?: string }>()
     .catch(() => ({}));
   try {
-    const fam = await getFamilyInfo(c.env, session.account_id);
-    assertOwnerIfInFamily(fam);
     const owner = await resolveGroupOwner(c.env, session.account_id, id);
     if (body.appliance_id) {
       const destOwner = await resolveApplianceOwner(c.env, session.account_id, body.appliance_id);
@@ -1212,8 +1209,6 @@ app.delete("/api/groups/:id", async (c) => {
   const strategy = c.req.query("strategy") ?? "";
   const moveToGroup = c.req.query("move_to_group") ?? "";
   try {
-    const fam = await getFamilyInfo(c.env, session.account_id);
-    assertOwnerIfInFamily(fam);
     const owner = await resolveGroupOwner(c.env, session.account_id, id);
     await mutateInventory(c.env, owner.owner_id, (inv) => {
       if (!inv.groups.some((g) => g.id === id))

@@ -1381,7 +1381,6 @@
         return main;
       }
 
-      const canEditA = canEditStructure();
       const headerMetaKids = [
         h("span", { class: "pill", text: a.kind }),
       ];
@@ -1391,10 +1390,8 @@
       }
       const headerActionKids = [
         h("button", { class: "primary", onClick: () => openItemDialog(null, a.id), text: "+ Add item" }),
+        h("button", { onClick: () => openGroupDialog(null, a.id), text: "+ Add group" }),
       ];
-      if (canEditA) {
-        headerActionKids.push(h("button", { onClick: () => openGroupDialog(null, a.id), text: "+ Add group" }));
-      }
       main.appendChild(h("div", { class: "row", style: "justify-content:space-between;margin-bottom:1rem" }, [
         h("div", {}, [
           h("button", { class: "ghost", onClick: () => { state.view = "appliances"; render(); }, text: "← All appliances" }),
@@ -1581,16 +1578,13 @@
       for (const g of groups) {
         if (!byGroup.has(g.id)) byGroup.set(g.id, []);
       }
-      const canEditG = canEditStructure();
       for (const [gid, groupItems] of byGroup) {
         const g = groupMap.get(gid);
         const summaryActions = [
           h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openItemDialog(null, g.appliance_id, g.id); }, text: "+ Variant" }),
+          h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openGroupDialog(g); }, text: "Edit" }),
+          h("button", { class: "ghost danger", onClick: (e) => { e.preventDefault(); e.stopPropagation(); deleteGroupFlow(g); }, text: "Delete" }),
         ];
-        if (canEditG) {
-          summaryActions.push(h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openGroupDialog(g); }, text: "Edit" }));
-          summaryActions.push(h("button", { class: "ghost danger", onClick: (e) => { e.preventDefault(); e.stopPropagation(); deleteGroupFlow(g); }, text: "Delete" }));
-        }
         const summary = h("summary", {}, [
           h("strong", { text: g.name }),
           h("span", { class: "pill", text: groupItems.length + " " + pluralize("variant", groupItems.length) }),

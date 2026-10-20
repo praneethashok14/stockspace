@@ -36,11 +36,11 @@ CREATE TABLE IF NOT EXISTS item_photos (
 -- Families: a group of accounts that share full appliance/group/item
 -- visibility. An account is in at most one family at a time (enforced by
 -- UNIQUE on family_memberships.account_id).
---   Owners can create/edit/delete appliances & groups, invite members,
---     promote/demote/remove members, and manage all items.
---   Members can view all shared data, create/edit/delete items, adjust
---     quantities, open/close packs, and manage photos. They CANNOT touch
---     appliance/group structure or the roster.
+--   Owners can create/edit/delete appliances, invite members,
+--     promote/demote/remove members, and manage all groups/items/photos.
+--   Members can view all shared data, create/edit/delete groups, items,
+--     and photos, adjust quantities, and open/close packs. They CANNOT
+--     create/edit/delete appliances or manage the roster.
 -- An invite that is accepted creates a family_memberships row. The invitee
 -- may leave their current family in the same request (?leave_current=1).
 CREATE TABLE IF NOT EXISTS families (
