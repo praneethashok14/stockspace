@@ -346,6 +346,15 @@
       align-items: center;
       gap: 0.4rem;
       color: var(--muted);
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      z-index: 200;
+      padding: 0.3rem 0.6rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      box-shadow: var(--shadow);
     }
     .spinner {
       width: 1rem;
@@ -410,7 +419,7 @@
     <!-- header + main injected by render() -->
   </div>
   <div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
-  <div id="busy" class="loading" hidden style="position:fixed;top:0.6rem;right:0.6rem;z-index:200;padding:0.3rem 0.6rem;background:var(--surface);border:1px solid var(--border);border-radius:999px;box-shadow:var(--shadow)">
+  <div id="busy" class="loading" hidden>
     <span class="spinner" aria-hidden="true"></span>
     <span>Saving…</span>
   </div>
