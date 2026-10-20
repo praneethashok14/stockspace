@@ -2343,7 +2343,10 @@
     async function boot() {
       render();
       await checkAuth();
-      render();
+      // Only re-render if authentication state actually changed to avoid flash/reload
+      if (state.authenticated || state.hasAccounts) {
+        render();
+      }
     }
     boot();
 
