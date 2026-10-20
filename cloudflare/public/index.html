@@ -346,15 +346,6 @@
       align-items: center;
       gap: 0.4rem;
       color: var(--muted);
-      position: fixed;
-      bottom: 1rem;
-      left: 1rem;
-      z-index: 200;
-      padding: 0.3rem 0.6rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      box-shadow: var(--shadow);
     }
     .spinner {
       width: 1rem;
@@ -419,9 +410,9 @@
     <!-- header + main injected by render() -->
   </div>
   <div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
-  <div id="busy" class="loading" hidden>
+  <div id="busy" class="loading" hidden style="position:fixed;bottom:0.6rem;left:0.6rem;z-index:200;padding:0.3rem 0.6rem;background:var(--surface);border:1px solid var(--border);border-radius:999px;box-shadow:var(--shadow)">
     <span class="spinner" aria-hidden="true"></span>
-    <span>Saving…</span>
+    <span id="busy-text">Working…</span>
   </div>
 
   <script>
@@ -458,6 +449,16 @@
         }
       }
       return el;
+    }
+
+    function pluralize(word, count) {
+      if (count === 1) return word;
+      const w = String(word).toLowerCase();
+      if (w === "person") return "people";
+      if (w.endsWith("y") && !["ay", "ey", "oy", "uy"].some(s => w.endsWith(s))) return w.slice(0, -1) + "ies";
+      if (w.endsWith("s") || w.endsWith("sh") || w.endsWith("ch") || w.endsWith("x") || w.endsWith("z")) return w + "es";
+      if (w.endsWith("f") || w.endsWith("fe")) return w.replace(/(f|fe)$/, "ves");
+      return w + "s";
     }
 
     function toast(message, kind = "info") {
@@ -512,16 +513,26 @@
       filters: { q: "", applianceId: "", category: "", tracking: "", packStatus: "", expiration: "" },
       sort: "name",
       busyCount: 0,
+      // Map of active op label -> number of in-flight ops with that label,
+      // so the busy pill can say "Deleting…"/"Signing in…" instead of a
+      // misleading "Saving…" for every operation.
+      busyLabels: new Map(),
       busyItems: new Set(),
     };
 
-    function withBusy(fn) {
+    const FALLBACK_BUSY_LABEL = "Working…";
+
+    function withBusy(label = FALLBACK_BUSY_LABEL, fn) {
       state.busyCount++;
+      state.busyLabels.set(label, (state.busyLabels.get(label) || 0) + 1);
       updateBusyIndicator();
       return Promise.resolve()
         .then(fn)
         .finally(() => {
           state.busyCount = Math.max(0, state.busyCount - 1);
+          const n = (state.busyLabels.get(label) || 0) - 1;
+          if (n <= 0) state.busyLabels.delete(label);
+          else state.busyLabels.set(label, n);
           updateBusyIndicator();
         });
     }
@@ -529,7 +540,16 @@
     function updateBusyIndicator() {
       const el = document.getElementById("busy");
       if (!el) return;
+      const text = document.getElementById("busy-text");
       el.hidden = state.busyCount === 0;
+      if (text) {
+        // With several concurrent ops, show a generic label.
+        const labels = Array.from(state.busyLabels.keys());
+        text.textContent =
+          state.busyCount > 1 && labels.length > 1
+            ? FALLBACK_BUSY_LABEL
+            : (labels[0] || FALLBACK_BUSY_LABEL);
+      }
     }
 
     // ---------- api ----------
@@ -829,7 +849,7 @@
           if (!name.trim()) { msg.textContent = "Please enter a name."; return; }
           if (!/^\d{4,12}$/.test(pin)) { msg.textContent = "PIN must be 4–12 digits."; return; }
           if (pin !== confirm) { msg.textContent = "PINs don't match."; return; }
-          await withBusy(async () => {
+          await withBusy("Creating account…", async () => {
             try {
               await signup(name.trim(), pin);
               toast(`Welcome, ${state.accountName}!`, "success");
@@ -892,7 +912,7 @@
           msg.textContent = "";
           if (!name || !name.trim()) { msg.textContent = "Enter your account name."; return; }
           if (!/^\d{4,12}$/.test(pin)) { msg.textContent = "Enter the 4–12 digit PIN."; return; }
-          await withBusy(async () => {
+          await withBusy("Signing in…", async () => {
             try {
               await login(name.trim(), pin);
               toast(`Welcome back, ${state.accountName}.`, "success");
@@ -987,7 +1007,7 @@
         const list = h("div", { class: "stack" });
         for (const i of matches) list.appendChild(renderInventoryItem(i, { showAppliance: true }));
         main.appendChild(h("section", { class: "card stack", "aria-label": "Search results" }, [
-          h("h2", { style: "margin:0;font-size:1.1rem", text: `${matches.length} result${matches.length === 1 ? "" : "s"}` }),
+          h("h2", { style: "margin:0;font-size:1.1rem", text: `${matches.length} ${pluralize("result", matches.length)}` }),
           list,
         ]));
         return main;
@@ -1042,7 +1062,7 @@
             h("strong", { text: a.name }),
             h("span", { class: "pill", text: a.kind }),
           ]),
-          h("div", { class: "muted", text: items.length + " item" + (items.length === 1 ? "" : "s") }),
+          h("div", { class: "muted", text: items.length + " " + pluralize("item", items.length) }),
           a.location ? h("div", { class: "muted", text: a.location }) : null,
         ]);
         grid.appendChild(card);
@@ -1100,7 +1120,7 @@
               h("span", { class: "pill", text: a.kind }),
             ]),
             a.location ? h("div", { class: "muted", text: a.location }) : null,
-            h("div", { class: "muted", text: itemCount + " item" + (itemCount === 1 ? "" : "s") }),
+            h("div", { class: "muted", text: itemCount + " " + pluralize("item", itemCount) }),
           ]),
           h("div", { class: "row" }, [
             h("button", { onClick: () => { state.activeApplianceId = a.id; state.view = "appliance"; render(); }, text: "Open" }),
@@ -1130,7 +1150,7 @@
             e.preventDefault();
             err.textContent = "";
             if (!data.name.trim()) { err.textContent = "Name is required."; return; }
-            await withBusy(async () => {
+            await withBusy("Saving…", async () => {
               try {
                 if (isEdit) {
                   await api("/api/appliances/" + encodeURIComponent(existing.id), {
@@ -1197,7 +1217,7 @@
       const totalChildren = items.length + groups.length;
       if (totalChildren === 0) {
         if (!confirm(`Delete "${appliance.name}"? This cannot be undone.`)) return;
-        await withBusy(async () => {
+        await withBusy("Deleting…", async () => {
           await api("/api/appliances/" + encodeURIComponent(appliance.id), { method: "DELETE" });
           await reloadInventory();
           toast("Appliance deleted.", "success");
@@ -1217,7 +1237,7 @@
       openDialog({
         title: `Delete "${appliance.name}"`,
         body: h("div", { class: "stack" }, [
-          h("p", { text: `This appliance holds ${items.length} item(s) and ${groups.length} group(s). Choose what happens to them:` }),
+          h("p", { text: `This appliance holds ${items.length} ${pluralize("item", items.length)} and ${groups.length} ${pluralize("group", groups.length)}. Choose what happens to them:` }),
           h("fieldset", { style: "border:none;padding:0" }, [
             radioEl("del-strat", "move", strategy === "move", "Move contents to another appliance", (v) => { strategy = v; }),
             moveSelect,
@@ -1232,7 +1252,7 @@
               if (strategy === "move") {
                 if (!moveTo) { err.textContent = "Pick a destination appliance."; return; }
               }
-              await withBusy(async () => {
+              await withBusy("Deleting…", async () => {
                 try {
                   let url = "/api/appliances/" + encodeURIComponent(appliance.id) + "?strategy=" + strategy;
                   if (strategy === "move") url += "&move_to=" + encodeURIComponent(moveTo);
@@ -1457,7 +1477,7 @@
         const g = groupMap.get(gid);
         const summary = h("summary", {}, [
           h("strong", { text: g.name }),
-          h("span", { class: "pill", text: groupItems.length + " variant" + (groupItems.length === 1 ? "" : "s") }),
+          h("span", { class: "pill", text: groupItems.length + " " + pluralize("variant", groupItems.length) }),
           h("div", { class: "row", style: "margin-left:auto" }, [
             h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openItemDialog(null, g.appliance_id, g.id); }, text: "+ Variant" }),
             h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openGroupDialog(g); }, text: "Edit" }),
@@ -1518,7 +1538,7 @@
           const header = arr[0];
           const sub = h("div", { style: "padding:0.5rem 1rem;background:var(--surface);font-weight:600;border-top:1px solid var(--border);display:flex;align-items:center;gap:0.5rem" }, [
             h("span", { text: header.name }),
-            h("span", { class: "pill", text: `${arr.length} variants` }),
+            h("span", { class: "pill", text: `${arr.length} ${pluralize("variant", arr.length)}` }),
           ]);
           wrap.appendChild(sub);
           for (const item of arr) wrap.appendChild(renderInventoryItem(item, opts));
@@ -1556,7 +1576,7 @@
       const delta = item.tracking === "individual" ? defaultIndividualDelta(item.unit) : 1;
       const valueDisplay = item.tracking === "individual"
         ? formatNumber(item.quantity) + " " + (item.unit || "")
-        : item.pack_count + " " + (item.pack_label || "pack") + (item.pack_count === 1 ? "" : "s");
+        : item.pack_count + " " + pluralize(item.pack_label || "pack", item.pack_count);
 
       const minusBtn = h("button", {
         class: "icon", "aria-label": minusLabel,
@@ -1757,7 +1777,7 @@
       const current = item.tracking === "individual" ? (item.quantity || 0) : (item.pack_count || 0);
       if (delta < 0 && current + delta <= 0) {
         state.busyItems.add(item.id);
-        await withBusy(async () => {
+        await withBusy("Deleting…", async () => {
           try {
             await api(
               "/api/appliances/" + encodeURIComponent(item.appliance_id) +
@@ -1776,7 +1796,7 @@
         return;
       }
       state.busyItems.add(item.id);
-      await withBusy(async () => {
+      await withBusy("Saving…", async () => {
         try {
           const updated = await api(
             "/api/appliances/" + encodeURIComponent(item.appliance_id) +
@@ -1799,7 +1819,7 @@
     async function packTransfer(item, direction, mode) {
       if (state.busyItems.has(item.id)) return;
       state.busyItems.add(item.id);
-      await withBusy(async () => {
+      await withBusy("Updating…", async () => {
         try {
           const path =
             (direction === "open" ? "open" : "close") +
@@ -1827,7 +1847,7 @@
 
     async function deleteItemFlow(item) {
       if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
-      await withBusy(async () => {
+      await withBusy("Deleting…", async () => {
         try {
           await api(
             "/api/appliances/" + encodeURIComponent(item.appliance_id) +
@@ -1965,7 +1985,7 @@
             err.textContent = "";
             if (!data.name.trim()) { err.textContent = "Name is required."; return; }
             if (!data.appliance_id) { err.textContent = "Pick an appliance."; return; }
-            await withBusy(async () => {
+            await withBusy("Saving…", async () => {
               try {
                 let savedItem;
                 if (isEdit) {
@@ -2116,7 +2136,7 @@
             err.textContent = "";
             if (!data.name.trim()) { err.textContent = "Name is required."; return; }
             if (!data.appliance_id) { err.textContent = "Pick an appliance."; return; }
-            await withBusy(async () => {
+            await withBusy("Saving…", async () => {
               try {
                 if (isEdit) {
                   await api("/api/groups/" + encodeURIComponent(existing.id), {
@@ -2163,7 +2183,7 @@
       const children = state.items.filter(i => i.group_id === group.id);
       if (children.length === 0) {
         if (!confirm(`Delete group "${group.name}"?`)) return;
-        await withBusy(async () => {
+        await withBusy("Deleting…", async () => {
           await api("/api/groups/" + encodeURIComponent(group.id), { method: "DELETE" });
           await reloadInventory();
           toast("Group deleted.", "success");
@@ -2182,7 +2202,7 @@
       openDialog({
         title: `Delete group "${group.name}"`,
         body: h("div", { class: "stack" }, [
-          h("p", { text: `This group has ${children.length} variant(s). Choose what happens to them:` }),
+          h("p", { text: `This group has ${children.length} ${pluralize("variant", children.length)}. Choose what happens to them:` }),
           h("fieldset", { style: "border:none;padding:0" }, [
             radioEl("delg-strat", "detach", strategy === "detach", "Keep variants, remove from group", (v) => { strategy = v; }),
             radioEl("delg-strat", "move", strategy === "move", "Move variants into another group in the same appliance", (v) => { strategy = v; }),
@@ -2196,7 +2216,7 @@
           { label: "Delete group", primary: true, danger: true, onClick: async () => {
               err.textContent = "";
               if (strategy === "move" && !moveToGroup) { err.textContent = "Pick a destination group."; return; }
-              await withBusy(async () => {
+              await withBusy("Deleting…", async () => {
                 try {
                   let url = "/api/groups/" + encodeURIComponent(group.id) + "?strategy=" + strategy;
                   if (strategy === "move") url += "&move_to_group=" + encodeURIComponent(moveToGroup);
@@ -2232,7 +2252,7 @@
             err.textContent = "";
             if (!/^\d{4,12}$/.test(next)) { err.textContent = "New PIN must be 4–12 digits."; return; }
             if (next !== confirm) { err.textContent = "New PINs don't match."; return; }
-            await withBusy(async () => {
+            await withBusy("Updating PIN…", async () => {
               try {
                 await changePin(current, next);
                 toast("PIN changed. Please unlock with your new PIN.", "success");
