@@ -4,3 +4,4 @@
 !/data/.gitkeep
 Cargo.lock
 .DS_Store
+.claude/
