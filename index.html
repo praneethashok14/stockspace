@@ -170,7 +170,16 @@
       box-shadow: var(--shadow);
     }
     html, body { overflow-x: hidden; }
-    :root { --chrome: oklch(28.2% 0.091 267.935); --chrome-text: #e8ecf7; }
+    :root {
+      --chrome: oklch(28.2% 0.091 267.935);
+      --chrome-text: #e8ecf7;
+      /* Translucent overlays derived from --chrome-text so hover / border /
+         divider shades stay visible whether the chrome bg is dark or light. */
+      --chrome-hover: color-mix(in srgb, var(--chrome-text) 14%, transparent);
+      --chrome-border: color-mix(in srgb, var(--chrome-text) 22%, transparent);
+      --chrome-strong: color-mix(in srgb, var(--chrome-text) 30%, transparent);
+      --chrome-muted: color-mix(in srgb, var(--chrome-text) 65%, transparent);
+    }
     .layout {
       display: grid;
       grid-template-rows: auto 1fr;
@@ -201,21 +210,21 @@
       gap: 0.4rem;
       min-width: 0;
       flex-wrap: wrap;
-      color: #fff;
+      color: var(--chrome-text);
     }
     header.app button {
       background: transparent;
       color: var(--chrome-text);
-      border-color: rgba(255, 255, 255, 0.18);
+      border-color: var(--chrome-border);
     }
     header.app button:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--chrome-hover);
     }
     header.app button.primary,
     header.app nav.main button[aria-current="page"] {
-      background: rgba(255, 255, 255, 0.16);
-      color: #fff;
-      border-color: rgba(255, 255, 255, 0.28);
+      background: var(--chrome-hover);
+      color: var(--chrome-text);
+      border-color: var(--chrome-strong);
     }
     nav.main {
       display: flex;
@@ -228,8 +237,8 @@
       padding: 0.4rem 0.75rem;
     }
     header.app .pill {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.2);
+      background: var(--chrome-hover);
+      border-color: var(--chrome-border);
       color: var(--chrome-text);
     }
     .sidebar {
@@ -257,7 +266,7 @@
     }
     .sidebar.open { transform: translateX(0); }
     .sidebar h2 {
-      color: #fff;
+      color: var(--chrome-text);
       font-size: 0.95rem;
       margin: 0.25rem 0 0.5rem;
       display: flex;
@@ -270,24 +279,24 @@
       text-align: left;
       background: transparent;
       color: var(--chrome-text);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--chrome-border);
       padding: 0.55rem 0.7rem;
       border-radius: 8px;
       min-height: 0;
       cursor: pointer;
     }
     .sidebar .sb-item:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--chrome-hover);
     }
     .sidebar .sb-item[aria-current="true"] {
-      background: rgba(255, 255, 255, 0.16);
-      border-color: rgba(255, 255, 255, 0.3);
-      color: #fff;
+      background: var(--chrome-hover);
+      border-color: var(--chrome-strong);
+      color: var(--chrome-text);
     }
     .sidebar .sb-item .sb-meta {
       display: block;
       font-size: 0.78rem;
-      color: rgba(232, 236, 247, 0.65);
+      color: var(--chrome-muted);
       margin-top: 0.1rem;
     }
     .sidebar .sb-add {
@@ -1038,7 +1047,7 @@
         }));
       }
       if (state.appliances.length === 0) {
-        kids.push(h("div", { style: "color:rgba(232,236,247,0.65);padding:0.5rem 0.2rem", text: "No appliances yet." }));
+        kids.push(h("div", { style: "color:var(--chrome-muted);padding:0.5rem 0.2rem", text: "No appliances yet." }));
       } else {
         for (const a of state.appliances) {
           const itemCount = state.items.filter(i => i.appliance_id === a.id).length;
