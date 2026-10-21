@@ -1152,15 +1152,16 @@
         }));
       }
 
-      // Hamburger toggle for the appliance sidebar. Only when authenticated.
-      const sidebarBtn = state.authenticated
+      // Hamburger toggle for the appliance sidebar. Hidden while the sidebar
+      // is already open — the sidebar has its own × close button there.
+      const sidebarBtn = state.authenticated && !state.sidebarOpen
         ? h("button", {
             type: "button",
             class: "icon ghost",
-            "aria-label": state.sidebarOpen ? "Close appliances sidebar" : "Open appliances sidebar",
-            "aria-expanded": state.sidebarOpen ? "true" : "false",
+            "aria-label": "Open appliances sidebar",
+            "aria-expanded": "false",
             title: "Appliances",
-            onClick: () => { state.sidebarOpen = !state.sidebarOpen; render(); },
+            onClick: () => { state.sidebarOpen = true; render(); },
             text: "≡",
           })
         : null;
