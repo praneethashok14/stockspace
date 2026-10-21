@@ -312,6 +312,14 @@
       opacity: 1;
       pointer-events: auto;
     }
+    /* Push the layout right when the sidebar is docked on wide screens.
+       Transition the padding so the content slides in sync with the sidebar.
+       On narrower viewports we fall back to the overlay behaviour above. */
+    body { transition: padding-left 0.2s ease; }
+    @media (min-width: 760px) {
+      body.sidebar-visible { padding-left: 280px; }
+      body.sidebar-visible .sidebar-backdrop { opacity: 0; pointer-events: none; }
+    }
     main.app {
       padding: 1rem;
       padding-left: max(1rem, env(safe-area-inset-left));
@@ -920,22 +928,56 @@
       }
       $root.appendChild(main);
 
-      // Appliances sidebar + backdrop live outside the layout flow so they
-      // can overlay content when toggled open.
-      if (state.authenticated) {
-        $root.appendChild(buildSidebarBackdrop());
-        $root.appendChild(buildSidebar());
-      }
+      // The sidebar + backdrop live on <body> and persist across renders so
+      // the CSS `transition: transform` on `.sidebar.open` actually fires —
+      // if they were rebuilt each render the browser would see the final
+      // state on mount and skip the animation.
+      updateSidebar();
     }
 
-    function buildSidebarBackdrop() {
-      return h("div", {
-        class: "sidebar-backdrop" + (state.sidebarOpen ? " open" : ""),
-        onClick: () => { if (state.sidebarOpen) { state.sidebarOpen = false; render(); } },
+    // Persistent sidebar / backdrop refs. Created lazily on first auth render.
+    let $sidebar = null;
+    let $sidebarBackdrop = null;
+
+    function ensureSidebarElements() {
+      if ($sidebar) return;
+      $sidebarBackdrop = document.createElement("div");
+      $sidebarBackdrop.className = "sidebar-backdrop";
+      $sidebarBackdrop.addEventListener("click", () => {
+        if (state.sidebarOpen) { state.sidebarOpen = false; render(); }
       });
+      document.body.appendChild($sidebarBackdrop);
+
+      $sidebar = document.createElement("aside");
+      $sidebar.className = "sidebar";
+      $sidebar.setAttribute("aria-label", "Appliances");
+      document.body.appendChild($sidebar);
     }
 
-    function buildSidebar() {
+    function updateSidebar() {
+      if (!state.authenticated) {
+        document.body.classList.remove("sidebar-visible");
+        if ($sidebar) {
+          $sidebar.classList.remove("open");
+          $sidebarBackdrop.classList.remove("open");
+        }
+        return;
+      }
+      ensureSidebarElements();
+      // Rebuild the sidebar contents each render; the OUTER element persists.
+      $sidebar.textContent = "";
+      for (const child of buildSidebarContents()) $sidebar.appendChild(child);
+      $sidebar.classList.toggle("open", state.sidebarOpen);
+      $sidebarBackdrop.classList.toggle("open", state.sidebarOpen);
+      // Body class drives the "push content" layout on wide screens via CSS.
+      document.body.classList.toggle("sidebar-visible", state.sidebarOpen);
+    }
+
+    function buildSidebarContents() {
+      // Returns an array of child nodes for the persistent <aside>.
+      // On wide viewports where the sidebar is docked, selecting an appliance
+      // keeps it open; on narrow (overlay) viewports we auto-close.
+      const narrow = !window.matchMedia("(min-width: 760px)").matches;
       const canEdit = canEditStructure();
       const kids = [
         h("h2", {}, [
@@ -955,7 +997,7 @@
           type: "button",
           class: "sb-add",
           onClick: () => {
-            state.sidebarOpen = false;
+            if (narrow) state.sidebarOpen = false;
             render();
             openApplianceDialog();
           },
@@ -979,7 +1021,7 @@
             onClick: () => {
               state.view = "appliance";
               state.activeApplianceId = a.id;
-              state.sidebarOpen = false;
+              if (narrow) state.sidebarOpen = false;
               render();
             },
           }, [
@@ -988,10 +1030,7 @@
           ]));
         }
       }
-      return h("aside", {
-        class: "sidebar" + (state.sidebarOpen ? " open" : ""),
-        "aria-label": "Appliances",
-      }, kids);
+      return kids;
     }
 
     function buildHeader() {
