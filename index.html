@@ -1830,16 +1830,55 @@
             "aria-hidden": "true",
             style: "width:36px;height:36px;border-radius:6px;background:var(--surface-2);border:1px solid var(--border);flex-shrink:0",
           });
-      return h("button", {
+
+      // Tapping thumb/name opens the edit dialog; the +/- controls on the right
+      // adjust quantity in place. They can't be nested in one button, so the
+      // outer element is a div and the clickable name region is its own button.
+      const busy = state.busyItems.has(item.id);
+      const delta = item.tracking === "individual" ? defaultIndividualDelta(item.unit) : 1;
+      const valueDisplay = item.tracking === "individual"
+        ? formatNumber(item.quantity) + " " + (item.unit || "")
+        : String(item.pack_count);
+
+      const nameBtn = h("button", {
         type: "button",
-        class: "ghost inv-item-compact",
-        style: "display:flex;align-items:center;gap:0.6rem;width:100%;text-align:left;padding:0.4rem 0.75rem;border-radius:0;border:0;border-top:1px solid var(--border);min-height:0;background:transparent",
+        class: "ghost",
+        style: "display:flex;align-items:center;gap:0.6rem;flex:1;min-width:0;text-align:left;padding:0;border:0;background:transparent;min-height:0",
         "aria-label": "Edit " + item.name,
         onClick: () => openItemDialog(item),
       }, [
         thumb,
         h("span", { style: "font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", text: item.name }),
+      ]);
+
+      const minusBtn = h("button", {
+        class: "icon ghost", "aria-label": item.tracking === "individual" ? "Decrease quantity" : "Decrease pack count",
+        disabled: busy,
+        style: "min-width:32px;min-height:32px;padding:0;font-size:1rem",
+        onClick: (e) => { e.stopPropagation(); adjustItem(item, -delta); },
+        text: "−",
+      });
+      const plusBtn = h("button", {
+        class: "icon primary", "aria-label": item.tracking === "individual" ? "Increase quantity" : "Increase pack count",
+        disabled: busy,
+        style: "min-width:32px;min-height:32px;padding:0;font-size:1rem",
+        onClick: (e) => { e.stopPropagation(); adjustItem(item, delta); },
+        text: "+",
+      });
+
+      return h("div", {
+        class: "inv-item-compact",
+        style: "display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.75rem;border-top:1px solid var(--border)",
+      }, [
+        nameBtn,
         pills.length > 0 ? h("span", { style: "display:flex;gap:0.3rem;flex-wrap:wrap;justify-content:flex-end" }, pills) : null,
+        h("span", {
+          style: "display:inline-flex;align-items:center;gap:0.25rem;flex-shrink:0",
+        }, [
+          minusBtn,
+          h("span", { style: "min-width:3rem;text-align:center;font-variant-numeric:tabular-nums;font-weight:600;font-size:0.9rem", text: valueDisplay }),
+          plusBtn,
+        ]),
       ]);
     }
 
