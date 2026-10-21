@@ -48,6 +48,7 @@ interface InventoryItemBase {
   expiration_date?: string | null;
   notes?: string | null;
   has_photo?: boolean;
+  tag_ids?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -58,13 +59,20 @@ type InventoryItem = InventoryItemBase &
     | { tracking: "pack"; pack_count: number; pack_label: string; pack_status: PackStatus }
   );
 
+interface Tag {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
 interface Inventory {
   appliances: Appliance[];
   groups: Group[];
   items: InventoryItem[];
+  tags?: Tag[];
 }
 
-const EMPTY_INVENTORY: Inventory = { appliances: [], groups: [], items: [] };
+const EMPTY_INVENTORY: Inventory = { appliances: [], groups: [], items: [], tags: [] };
 
 const SESSION_COOKIE = "stockspace_session";
 const CSRF_HEADER = "x-stockspace-csrf";
@@ -257,7 +265,12 @@ async function getInventory(env: Env, accountId: string): Promise<Inventory> {
     .first<{ data: string }>();
   if (!row) return structuredClone(EMPTY_INVENTORY);
   try {
-    return JSON.parse(row.data) as Inventory;
+    const inv = JSON.parse(row.data) as Inventory;
+    // Backfill fields introduced after initial deploy so later code can assume
+    // they exist without null-checks everywhere.
+    if (!Array.isArray(inv.tags)) inv.tags = [];
+    for (const it of inv.items) if (!Array.isArray(it.tag_ids)) it.tag_ids = [];
+    return inv;
   } catch {
     return structuredClone(EMPTY_INVENTORY);
   }
@@ -411,6 +424,7 @@ async function getMergedInventory(
   appliances: (Appliance & { owner_account_id: string; owner_account_name: string })[];
   groups: (Group & { owner_account_id: string; owner_account_name: string })[];
   items: (InventoryItem & { owner_account_id: string; owner_account_name: string })[];
+  tags: (Tag & { owner_account_id: string; owner_account_name: string })[];
   family: FamilyInfo;
 }> {
   const fam = await getFamilyInfo(env, callerId);
@@ -421,6 +435,7 @@ async function getMergedInventory(
   const appliances: any[] = [];
   const groups: any[] = [];
   const items: any[] = [];
+  const tags: any[] = [];
   for (const src of sources) {
     const inv = await getInventory(env, src.id);
     for (const a of inv.appliances)
@@ -429,8 +444,38 @@ async function getMergedInventory(
       groups.push({ ...g, owner_account_id: src.id, owner_account_name: src.name });
     for (const i of inv.items)
       items.push({ ...i, owner_account_id: src.id, owner_account_name: src.name });
+    for (const t of inv.tags ?? [])
+      tags.push({ ...t, owner_account_id: src.id, owner_account_name: src.name });
   }
-  return { appliances, groups, items, family: fam };
+  return { appliances, groups, items, tags, family: fam };
+}
+
+// Finds which accessible account's inventory contains the given tag.
+async function resolveTagOwner(
+  env: Env,
+  callerId: string,
+  tagId: string,
+): Promise<OwnerLookup> {
+  const fam = await getFamilyInfo(env, callerId);
+  const ids = fam.family_id ? fam.members.map((m) => m.account_id) : [callerId];
+  for (const id of ids) {
+    const inv = await getInventory(env, id);
+    if ((inv.tags ?? []).some((t) => t.id === tagId)) {
+      const name =
+        fam.members.find((m) => m.account_id === id)?.account_name ??
+        (await accountName(env, id)) ??
+        "?";
+      return { owner_id: id, owner_name: name, caller_role: fam.my_role };
+    }
+  }
+  throw new HttpErr(404, `tag ${tagId} not found`);
+}
+
+function validateTagName(name: unknown): string | null {
+  if (typeof name !== "string") return null;
+  const trimmed = name.trim().replace(/^#+/, "").trim();
+  if (trimmed.length === 0 || trimmed.length > 30) return null;
+  return trimmed;
 }
 
 // ---------- Error helpers ----------
@@ -822,6 +867,9 @@ app.post("/api/appliances/:id/items", async (c) => {
         expiration_date: blankToNull(body.expiration_date),
         notes: blankToNull(body.notes),
         has_photo: false,
+        tag_ids: Array.isArray(body.tag_ids)
+          ? body.tag_ids.filter((t: unknown): t is string => typeof t === "string")
+          : [],
         created_at: nowIso(),
         updated_at: nowIso(),
         ...trackingPart.ok,
@@ -866,6 +914,9 @@ app.patch("/api/appliances/:id/items/:item_id", async (c) => {
       if (body.expiration_date !== undefined)
         item.expiration_date = blankToNull(body.expiration_date);
       if (body.notes !== undefined) item.notes = blankToNull(body.notes);
+      if (Array.isArray(body.tag_ids)) {
+        item.tag_ids = body.tag_ids.filter((t: unknown): t is string => typeof t === "string");
+      }
       if (item.tracking === "individual" && typeof body.unit === "string") {
         if (!validItemName(body.unit)) throw new HttpErr(400, "unit must not be empty");
         item.unit = body.unit.trim();
@@ -1264,6 +1315,7 @@ app.get("/api/items", async (c) => {
     items: merged.items,
     groups: merged.groups,
     appliances: merged.appliances,
+    tags: merged.tags,
     family: merged.family,
   });
 });
@@ -1463,6 +1515,78 @@ app.delete("/api/appliances/:id/items/:item_id/photo", async (c) => {
     )
       .bind(owner.owner_id, itemId)
       .run();
+    return c.body(null, 204);
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
+});
+
+// ---------- Routes: tags ----------
+
+// Shared across the whole family. Each tag physically lives in one member's
+// inventory blob, but all family members can see/add/delete every tag.
+// Duplicate names (case-insensitive) are rejected across the family.
+
+app.get("/api/tags", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const merged = await getMergedInventory(c.env, session.account_id);
+  return c.json({ tags: merged.tags });
+});
+
+app.post("/api/tags", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const body = await c.req.json<{ name?: string }>().catch(() => ({}));
+  const name = validateTagName(body.name);
+  if (!name) return jsonError(c, 400, "bad_request", "tag name is required (1-30 chars)");
+  try {
+    const merged = await getMergedInventory(c.env, session.account_id);
+    const needle = name.toLowerCase();
+    if (merged.tags.some((t) => t.name.toLowerCase() === needle)) {
+      return jsonError(c, 409, "conflict", "a tag with that name already exists");
+    }
+    const tag: Tag = { id: newId(), name, created_at: nowIso() };
+    await mutateInventory(c.env, session.account_id, (inv) => {
+      if (!Array.isArray(inv.tags)) inv.tags = [];
+      inv.tags.push(tag);
+    });
+    const ownerName = (await accountName(c.env, session.account_id)) ?? "";
+    return c.json(
+      { ...tag, owner_account_id: session.account_id, owner_account_name: ownerName },
+      201,
+    );
+  } catch (e) {
+    return httpErrorResponse(c, e);
+  }
+});
+
+// Delete a tag. Also strips the tag_id from every item in that same owner's
+// inventory. Items in OTHER family members' inventories that still reference
+// this tag id will simply drop the pill client-side (orphaned tag_ids are
+// tolerated — resolving them against the merged tags map misses, no pill).
+app.delete("/api/tags/:id", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const id = c.req.param("id");
+  try {
+    const owner = await resolveTagOwner(c.env, session.account_id, id);
+    await mutateInventory(c.env, owner.owner_id, (inv) => {
+      inv.tags = (inv.tags ?? []).filter((t) => t.id !== id);
+      for (const it of inv.items) {
+        if (Array.isArray(it.tag_ids) && it.tag_ids.includes(id)) {
+          it.tag_ids = it.tag_ids.filter((t) => t !== id);
+          it.updated_at = nowIso();
+        }
+      }
+    });
     return c.body(null, 204);
   } catch (e) {
     return httpErrorResponse(c, e);
