@@ -1393,23 +1393,20 @@ app.get("/api/appliances/:id/items/:item_id/photo", async (c) => {
   const session = c.get("session")!;
   const applianceId = c.req.param("id");
   const itemId = c.req.param("item_id");
-  let ownerId: string;
-  try {
-    const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
-    ownerId = owner.owner_id;
-  } catch (e) {
-    return httpErrorResponse(c, e);
-  }
-  const inv = await getInventory(c.env, ownerId);
-  if (!inv.items.some((x) => x.id === itemId && x.appliance_id === applianceId)) {
-    return jsonError(c, 404, "not_found", `item ${itemId} not found`);
-  }
+  // Direct lookup: photos live in item_photos keyed by (account_id, item_id).
+  // We don't need to scan every family member's inventory JSON — just read the
+  // photo row and verify its owning account is one the caller can access.
   const row = await c.env.DB.prepare(
-    "SELECT data FROM item_photos WHERE account_id = ? AND item_id = ?",
+    "SELECT account_id, data, updated_at FROM item_photos WHERE item_id = ?",
   )
-    .bind(ownerId, itemId)
+    .bind(itemId)
     .first<Record<string, unknown>>();
   if (!row) return jsonError(c, 404, "not_found", "photo not found");
+  const photoOwnerId = (row as any).account_id as string;
+  const allowed = await accessibleAccountIds(c.env, session.account_id);
+  if (!allowed.includes(photoOwnerId)) {
+    return jsonError(c, 404, "not_found", "photo not found");
+  }
   const raw = (row as any).data;
   // D1's JS bindings have historically returned BLOB columns in several
   // different shapes depending on the wrangler version (ArrayBuffer, Uint8Array,
@@ -1432,11 +1429,13 @@ app.get("/api/appliances/:id/items/:item_id/photo", async (c) => {
       `unexpected photo blob type: ${Object.prototype.toString.call(raw)} (len=${(raw as any)?.length ?? (raw as any)?.byteLength ?? "?"})`,
     );
   }
+  // Cache for a week — clients that need freshness bust with ?v=<updated_at>.
   return new Response(bytes, {
     headers: {
       "content-type": "image/jpeg",
       "content-length": String(bytes.byteLength),
-      "cache-control": "private, no-store",
+      "cache-control": "private, max-age=604800, immutable",
+      "etag": `"${itemId}-${(row as any).updated_at}"`,
     },
   });
 });

@@ -1748,7 +1748,8 @@
           }, [
             h("img", {
               src: "/api/appliances/" + encodeURIComponent(item.appliance_id) +
-                   "/items/" + encodeURIComponent(item.id) + "/photo",
+                   "/items/" + encodeURIComponent(item.id) + "/photo" +
+                   "?v=" + encodeURIComponent(item.updated_at || ""),
               alt: item.name,
               loading: "lazy",
               decoding: "async",
@@ -1829,9 +1830,10 @@
         "/items/" + encodeURIComponent(item.id) + "/photo",
         { method: "POST", body: { image_base64: b64 } },
       );
-      // Update the local item in state so the thumbnail re-renders.
+      // Merge over the existing record so owner_account_id / owner_account_name
+      // (added by /api/items) survive — the per-item response doesn't carry them.
       const idx = state.items.findIndex(i => i.id === updated.id);
-      if (idx >= 0) state.items[idx] = updated;
+      if (idx >= 0) state.items[idx] = { ...state.items[idx], ...updated };
       return updated;
     }
 
@@ -1848,7 +1850,8 @@
     function openPhotoLightbox(item) {
       const img = h("img", {
         src: "/api/appliances/" + encodeURIComponent(item.appliance_id) +
-             "/items/" + encodeURIComponent(item.id) + "/photo?t=" + Date.now(),
+             "/items/" + encodeURIComponent(item.id) + "/photo" +
+             "?v=" + encodeURIComponent(item.updated_at || ""),
         alt: item.name,
         style: "max-width:min(90vw,900px);max-height:85vh;display:block;border-radius:8px;background:#000",
       });
@@ -1913,7 +1916,7 @@
             { method: "POST", body: { delta } },
           );
           const idx = state.items.findIndex(i => i.id === updated.id);
-          if (idx >= 0) state.items[idx] = updated;
+          if (idx >= 0) state.items[idx] = { ...state.items[idx], ...updated };
           announce("Quantity updated.");
         } catch (err) {
           if (err.status === 400) toast(err.message, "error");
@@ -1963,7 +1966,8 @@
             "/items/" + encodeURIComponent(item.id),
             { method: "DELETE" },
           );
-          await reloadInventory();
+          // Splice in place — avoids a full /api/items round-trip for a single-row delete.
+          state.items = state.items.filter(i => i.id !== item.id);
           toast("Item deleted.", "success");
           render();
         } catch (err) {
@@ -2025,7 +2029,8 @@
         if (isEdit && existing?.has_photo && !photoState.deleteExisting) {
           photoPreviewSlot.appendChild(h("img", {
             src: "/api/appliances/" + encodeURIComponent(existing.appliance_id) +
-                 "/items/" + encodeURIComponent(existing.id) + "/photo",
+                 "/items/" + encodeURIComponent(existing.id) + "/photo" +
+                 "?v=" + encodeURIComponent(existing.updated_at || ""),
             alt: "Current photo",
             loading: "lazy",
             style: "width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border)",
@@ -2150,7 +2155,20 @@
                   }
                 }
                 if (photoState.previewUrl) URL.revokeObjectURL(photoState.previewUrl);
-                await reloadInventory();
+                // Splice in place rather than refetching the whole inventory.
+                if (isEdit) {
+                  const idx = state.items.findIndex(i => i.id === savedItem.id);
+                  if (idx >= 0) state.items[idx] = { ...state.items[idx], ...savedItem };
+                } else {
+                  // New item: inherit owner metadata from the appliance it was added to
+                  // so the "owner" badge renders correctly without a full reload.
+                  const apl = state.appliances.find(a => a.id === savedItem.appliance_id);
+                  if (apl && apl.owner_account_id) {
+                    savedItem.owner_account_id = apl.owner_account_id;
+                    savedItem.owner_account_name = apl.owner_account_name;
+                  }
+                  state.items.push(savedItem);
+                }
                 toast(isEdit ? "Item updated." : "Item added.", "success");
                 closeDialog();
                 render();
