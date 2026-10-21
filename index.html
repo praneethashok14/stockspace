@@ -544,6 +544,12 @@
       familyId: null,
       familyRole: null,
       family: null, // { family_id, my_role, members, incoming_invitations, outgoing_invitations }
+      // Row density: "full" (default) shows meta + qty controls + actions;
+      // "compact" shows only photo, name, opened/unopened pill, expiration pill.
+      density: (function () {
+        try { return localStorage.getItem("stockspace_density") === "compact" ? "compact" : "full"; }
+        catch (_) { return "full"; }
+      })(),
     };
 
     // Captured BeforeInstallPromptEvent from Chrome/Edge/Samsung Internet so
@@ -864,9 +870,21 @@
         text: currentTheme === "dark" ? "☾" : (currentTheme === "light" ? "☀" : "◐"),
       });
 
+      // Row density toggle: compact vs full. Only meaningful when authenticated.
+      const densityBtn = state.authenticated
+        ? h("button", {
+            type: "button",
+            class: "icon ghost",
+            "aria-label": "Switch to " + (state.density === "compact" ? "full" : "compact") + " view",
+            title: state.density === "compact" ? "Switch to full view" : "Switch to compact view",
+            onClick: toggleDensity,
+            text: state.density === "compact" ? "▤" : "☰",
+          })
+        : null;
+
       // Install button (visible only when the browser has fired beforeinstallprompt
       // and the app is not already installed). Tapping triggers the native prompt.
-      const extras = [themeBtn];
+      const extras = [densityBtn, themeBtn].filter(Boolean);
       if (state.installPromptAvailable && !state.isInstalled) {
         extras.unshift(h("button", {
           type: "button",
@@ -888,6 +906,12 @@
       if (nextTheme === "auto") delete document.documentElement.dataset.theme;
       else document.documentElement.dataset.theme = nextTheme;
       try { localStorage.setItem("stockspace_theme", nextTheme); } catch (_) {}
+      render();
+    }
+
+    function toggleDensity() {
+      state.density = state.density === "compact" ? "full" : "compact";
+      try { localStorage.setItem("stockspace_density", state.density); } catch (_) {}
       render();
     }
 
@@ -1657,6 +1681,7 @@
     }
 
     function renderInventoryItem(item, opts = {}) {
+      if (state.density === "compact") return renderInventoryItemCompact(item, opts);
       const busy = state.busyItems.has(item.id);
       const appliance = state.appliances.find(a => a.id === item.appliance_id);
       const metaChildren = [];
@@ -1771,6 +1796,50 @@
       return h("div", { class: "inv-item" }, [
         leftCol,
         h("div", { class: "inv-right" }, [qty, actions]),
+      ]);
+    }
+
+    // Compact row: photo + name + opened/unopened + expiration warning only.
+    // Tapping the row opens the edit dialog so the compact view is still
+    // actionable without crowding the layout.
+    function renderInventoryItemCompact(item, opts = {}) {
+      const pills = [];
+      if (item.tracking === "pack") {
+        pills.push(h("span", { class: "pill accent", text: item.pack_status }));
+      }
+      if (item.expiration_date) {
+        const st = expirationState(item.expiration_date);
+        if (st === "expired") {
+          pills.push(h("span", { class: "pill danger", text: "Expired " + formatDate(item.expiration_date) }));
+        } else if (st === "soon") {
+          pills.push(h("span", { class: "pill warning", text: "Expires " + formatDate(item.expiration_date) }));
+        }
+      }
+      const thumb = item.has_photo
+        ? h("img", {
+            src: "/api/appliances/" + encodeURIComponent(item.appliance_id) +
+                 "/items/" + encodeURIComponent(item.id) + "/photo" +
+                 "?v=" + encodeURIComponent(item.updated_at || ""),
+            alt: "",
+            loading: "lazy",
+            decoding: "async",
+            width: "36", height: "36",
+            style: "display:block;width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0",
+          })
+        : h("div", {
+            "aria-hidden": "true",
+            style: "width:36px;height:36px;border-radius:6px;background:var(--surface-2);border:1px solid var(--border);flex-shrink:0",
+          });
+      return h("button", {
+        type: "button",
+        class: "ghost inv-item-compact",
+        style: "display:flex;align-items:center;gap:0.6rem;width:100%;text-align:left;padding:0.4rem 0.75rem;border-radius:0;border:0;border-top:1px solid var(--border);min-height:0;background:transparent",
+        "aria-label": "Edit " + item.name,
+        onClick: () => openItemDialog(item),
+      }, [
+        thumb,
+        h("span", { style: "font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", text: item.name }),
+        pills.length > 0 ? h("span", { style: "display:flex;gap:0.3rem;flex-wrap:wrap;justify-content:flex-end" }, pills) : null,
       ]);
     }
 
