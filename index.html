@@ -544,11 +544,14 @@
       familyId: null,
       familyRole: null,
       family: null, // { family_id, my_role, members, incoming_invitations, outgoing_invitations }
-      // Row density: "full" (default) shows meta + qty controls + actions;
-      // "compact" shows only photo, name, opened/unopened pill, expiration pill.
+      // Row density: "full" (default) is the detailed card; "compact" is a
+      // dense horizontal row; "grid" tiles items as photo-first cards.
       density: (function () {
-        try { return localStorage.getItem("stockspace_density") === "compact" ? "compact" : "full"; }
-        catch (_) { return "full"; }
+        try {
+          const d = localStorage.getItem("stockspace_density");
+          if (d === "compact" || d === "grid") return d;
+        } catch (_) {}
+        return "full";
       })(),
     };
 
@@ -870,15 +873,17 @@
         text: currentTheme === "dark" ? "☾" : (currentTheme === "light" ? "☀" : "◐"),
       });
 
-      // Row density toggle: compact vs full. Only meaningful when authenticated.
+      // Row density toggle: cycles full → compact → grid → full. Only
+      // meaningful when authenticated.
+      const nextDensity = { full: "compact", compact: "grid", grid: "full" }[state.density];
       const densityBtn = state.authenticated
         ? h("button", {
             type: "button",
             class: "icon ghost",
-            "aria-label": "Switch to " + (state.density === "compact" ? "full" : "compact") + " view",
-            title: state.density === "compact" ? "Switch to full view" : "Switch to compact view",
+            "aria-label": "Switch to " + nextDensity + " view (current: " + state.density + ")",
+            title: "Switch to " + nextDensity + " view",
             onClick: toggleDensity,
-            text: state.density === "compact" ? "▤" : "☰",
+            text: state.density === "grid" ? "▦" : (state.density === "compact" ? "▤" : "☰"),
           })
         : null;
 
@@ -910,7 +915,8 @@
     }
 
     function toggleDensity() {
-      state.density = state.density === "compact" ? "full" : "compact";
+      const next = { full: "compact", compact: "grid", grid: "full" };
+      state.density = next[state.density] || "full";
       try { localStorage.setItem("stockspace_density", state.density); } catch (_) {}
       render();
     }
@@ -1101,7 +1107,7 @@
           ]));
           return main;
         }
-        const list = h("div", { class: "stack" });
+        const list = newItemsContainer();
         for (const i of matches) list.appendChild(renderInventoryItem(i, { showAppliance: true }));
         main.appendChild(h("section", { class: "card stack", "aria-label": "Search results" }, [
           h("h2", { style: "margin:0;font-size:1.1rem", text: `${matches.length} ${pluralize("result", matches.length)}` }),
@@ -1143,7 +1149,7 @@
         .filter(x => x.state === "expired" || x.state === "soon")
         .sort((a, b) => (a.i.expiration_date || "").localeCompare(b.i.expiration_date || ""));
       if (soonItems.length > 0) {
-        const list = h("div", { class: "stack" });
+        const list = newItemsContainer();
         for (const { i } of soonItems.slice(0, 20)) {
           list.appendChild(renderInventoryItem(i, { showAppliance: true }));
         }
@@ -1584,6 +1590,15 @@
 
     // ---------- items rendering ----------
 
+    const GRID_LAYOUT_STYLE =
+      "display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:0.6rem;padding:0.6rem";
+
+    function newItemsContainer() {
+      return state.density === "grid"
+        ? h("div", { style: GRID_LAYOUT_STYLE })
+        : h("div", { class: "stack" });
+    }
+
     function renderGroupedItems(items, groups, opts) {
       const container = h("div", { class: "stack" });
       // Grouped items first (one <details> per group), then ungrouped flat.
@@ -1621,8 +1636,12 @@
           ]));
         } else {
           groupItems.sort(compareItems);
-          for (const item of groupItems) {
-            details.appendChild(renderInventoryItem(item, opts));
+          if (state.density === "grid") {
+            const body = h("div", { style: GRID_LAYOUT_STYLE });
+            for (const item of groupItems) body.appendChild(renderInventoryItem(item, opts));
+            details.appendChild(body);
+          } else {
+            for (const item of groupItems) details.appendChild(renderInventoryItem(item, opts));
           }
         }
         container.appendChild(details);
@@ -1662,19 +1681,30 @@
           ]),
         ]);
 
-        // Render each pair/cluster as a nested mini-group with a shared heading.
-        for (const arr of packClusters.values()) {
-          arr.sort((a, b) => a.pack_status.localeCompare(b.pack_status));
-          const header = arr[0];
-          const sub = h("div", { style: "padding:0.5rem 1rem;background:var(--surface);font-weight:600;border-top:1px solid var(--border);display:flex;align-items:center;gap:0.5rem" }, [
-            h("span", { text: header.name }),
-            h("span", { class: "pill", text: `${arr.length} ${pluralize("variant", arr.length)}` }),
-          ]);
-          wrap.appendChild(sub);
-          for (const item of arr) wrap.appendChild(renderInventoryItem(item, opts));
+        if (state.density === "grid") {
+          // Grid mode flattens pack-cluster headings — the photo tiles make
+          // variants visually distinct enough on their own.
+          const all = [...singles];
+          for (const arr of packClusters.values()) all.push(...arr);
+          all.sort(compareItems);
+          const body = h("div", { style: GRID_LAYOUT_STYLE });
+          for (const item of all) body.appendChild(renderInventoryItem(item, opts));
+          wrap.appendChild(body);
+        } else {
+          // Render each pair/cluster as a nested mini-group with a shared heading.
+          for (const arr of packClusters.values()) {
+            arr.sort((a, b) => a.pack_status.localeCompare(b.pack_status));
+            const header = arr[0];
+            const sub = h("div", { style: "padding:0.5rem 1rem;background:var(--surface);font-weight:600;border-top:1px solid var(--border);display:flex;align-items:center;gap:0.5rem" }, [
+              h("span", { text: header.name }),
+              h("span", { class: "pill", text: `${arr.length} ${pluralize("variant", arr.length)}` }),
+            ]);
+            wrap.appendChild(sub);
+            for (const item of arr) wrap.appendChild(renderInventoryItem(item, opts));
+          }
+          singles.sort(compareItems);
+          for (const item of singles) wrap.appendChild(renderInventoryItem(item, opts));
         }
-        singles.sort(compareItems);
-        for (const item of singles) wrap.appendChild(renderInventoryItem(item, opts));
         container.appendChild(wrap);
       }
       return container;
@@ -1682,6 +1712,7 @@
 
     function renderInventoryItem(item, opts = {}) {
       if (state.density === "compact") return renderInventoryItemCompact(item, opts);
+      if (state.density === "grid") return renderInventoryItemGrid(item, opts);
       const busy = state.busyItems.has(item.id);
       const appliance = state.appliances.find(a => a.id === item.appliance_id);
       const metaChildren = [];
@@ -1878,6 +1909,99 @@
           minusBtn,
           h("span", { style: "min-width:3rem;text-align:center;font-variant-numeric:tabular-nums;font-weight:600;font-size:0.9rem", text: valueDisplay }),
           plusBtn,
+        ]),
+      ]);
+    }
+
+    // Grid card: photo on top, name + pills below, inline qty controls.
+    // Tapping the photo or name opens the edit dialog; +/- act directly.
+    function renderInventoryItemGrid(item, opts = {}) {
+      const busy = state.busyItems.has(item.id);
+      const pills = [];
+      if (item.tracking === "pack") {
+        pills.push(h("span", { class: "pill accent", text: item.pack_status }));
+      }
+      if (item.expiration_date) {
+        const st = expirationState(item.expiration_date);
+        if (st === "expired") {
+          pills.push(h("span", { class: "pill danger", text: "Expired " + formatDate(item.expiration_date) }));
+        } else if (st === "soon") {
+          pills.push(h("span", { class: "pill warning", text: "Expires " + formatDate(item.expiration_date) }));
+        }
+      }
+      if (state.familyId && item.owner_account_name && item.owner_account_id !== state.accountId) {
+        pills.push(h("span", { class: "pill accent", text: item.owner_account_name }));
+      }
+
+      const photoArea = item.has_photo
+        ? h("img", {
+            src: "/api/appliances/" + encodeURIComponent(item.appliance_id) +
+                 "/items/" + encodeURIComponent(item.id) + "/photo" +
+                 "?v=" + encodeURIComponent(item.updated_at || ""),
+            alt: "",
+            loading: "lazy",
+            decoding: "async",
+            style: "display:block;width:100%;aspect-ratio:1/1;object-fit:cover;background:var(--surface-2)",
+          })
+        : h("div", {
+            "aria-hidden": "true",
+            style: "width:100%;aspect-ratio:1/1;background:var(--surface-2);display:grid;place-items:center;color:var(--muted);font-size:0.8rem",
+            text: "No photo",
+          });
+
+      const openBtn = h("button", {
+        type: "button",
+        class: "ghost",
+        style: "display:block;width:100%;padding:0;border:0;background:transparent;cursor:pointer;min-height:0;border-radius:var(--radius) var(--radius) 0 0;overflow:hidden",
+        "aria-label": "Edit " + item.name,
+        onClick: () => openItemDialog(item),
+      }, [photoArea]);
+
+      const delta = item.tracking === "individual" ? defaultIndividualDelta(item.unit) : 1;
+      const valueDisplay = item.tracking === "individual"
+        ? formatNumber(item.quantity) + " " + (item.unit || "")
+        : String(item.pack_count);
+      const minusBtn = h("button", {
+        class: "icon ghost",
+        "aria-label": item.tracking === "individual" ? "Decrease quantity" : "Decrease pack count",
+        disabled: busy,
+        style: "min-width:32px;min-height:32px;padding:0;font-size:1rem",
+        onClick: (e) => { e.stopPropagation(); adjustItem(item, -delta); },
+        text: "−",
+      });
+      const plusBtn = h("button", {
+        class: "icon primary",
+        "aria-label": item.tracking === "individual" ? "Increase quantity" : "Increase pack count",
+        disabled: busy,
+        style: "min-width:32px;min-height:32px;padding:0;font-size:1rem",
+        onClick: (e) => { e.stopPropagation(); adjustItem(item, delta); },
+        text: "+",
+      });
+
+      return h("div", {
+        class: "card",
+        style: "padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0",
+      }, [
+        openBtn,
+        h("div", { style: "padding:0.6rem 0.75rem;display:flex;flex-direction:column;gap:0.4rem" }, [
+          h("button", {
+            type: "button",
+            class: "ghost",
+            style: "display:block;width:100%;padding:0;border:0;background:transparent;text-align:left;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:0",
+            "aria-label": "Edit " + item.name,
+            onClick: () => openItemDialog(item),
+            text: item.name,
+          }),
+          pills.length > 0
+            ? h("div", { style: "display:flex;gap:0.3rem;flex-wrap:wrap" }, pills)
+            : null,
+          h("div", {
+            style: "display:flex;align-items:center;justify-content:space-between;gap:0.3rem;margin-top:0.2rem",
+          }, [
+            minusBtn,
+            h("span", { style: "font-variant-numeric:tabular-nums;font-weight:600;font-size:0.9rem", text: valueDisplay }),
+            plusBtn,
+          ]),
         ]),
       ]);
     }
