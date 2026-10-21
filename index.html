@@ -170,6 +170,7 @@
       box-shadow: var(--shadow);
     }
     html, body { overflow-x: hidden; }
+    :root { --chrome: oklch(28.2% 0.091 267.935); --chrome-text: #e8ecf7; }
     .layout {
       display: grid;
       grid-template-rows: auto 1fr;
@@ -185,8 +186,9 @@
         max(1rem, env(safe-area-inset-right))
         0.75rem
         max(1rem, env(safe-area-inset-left));
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
+      border-bottom: 1px solid var(--chrome);
+      background: var(--chrome);
+      color: var(--chrome-text);
       position: sticky;
       top: 0;
       z-index: 10;
@@ -199,6 +201,21 @@
       gap: 0.4rem;
       min-width: 0;
       flex-wrap: wrap;
+      color: #fff;
+    }
+    header.app button {
+      background: transparent;
+      color: var(--chrome-text);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+    header.app button:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    header.app button.primary,
+    header.app nav.main button[aria-current="page"] {
+      background: rgba(255, 255, 255, 0.16);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.28);
     }
     nav.main {
       display: flex;
@@ -210,10 +227,90 @@
       min-height: 44px;
       padding: 0.4rem 0.75rem;
     }
-    nav.main button[aria-current="page"] {
+    header.app .pill {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: var(--chrome-text);
+    }
+    .sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 280px;
+      max-width: 85vw;
+      background: var(--chrome);
+      color: var(--chrome-text);
+      padding:
+        max(0.75rem, env(safe-area-inset-top))
+        0.75rem
+        max(0.75rem, env(safe-area-inset-bottom))
+        max(0.75rem, env(safe-area-inset-left));
+      overflow-y: auto;
+      z-index: 30;
+      transform: translateX(-100%);
+      transition: transform 0.2s ease;
+      box-shadow: 2px 0 12px rgba(0, 0, 0, 0.35);
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar h2 {
+      color: #fff;
+      font-size: 0.95rem;
+      margin: 0.25rem 0 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .sidebar .sb-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      color: var(--chrome-text);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.55rem 0.7rem;
+      border-radius: 8px;
+      min-height: 0;
+      cursor: pointer;
+    }
+    .sidebar .sb-item:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .sidebar .sb-item[aria-current="true"] {
+      background: rgba(255, 255, 255, 0.16);
+      border-color: rgba(255, 255, 255, 0.3);
+      color: #fff;
+    }
+    .sidebar .sb-item .sb-meta {
+      display: block;
+      font-size: 0.78rem;
+      color: rgba(232, 236, 247, 0.65);
+      margin-top: 0.1rem;
+    }
+    .sidebar .sb-add {
       background: var(--accent);
       color: var(--accent-text);
-      border-color: var(--accent);
+      border: 0;
+      border-radius: 8px;
+      padding: 0.55rem 0.7rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .sidebar-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 25;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .sidebar-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
     }
     main.app {
       padding: 1rem;
@@ -553,6 +650,7 @@
         } catch (_) {}
         return "full";
       })(),
+      sidebarOpen: false,
     };
 
     // Captured BeforeInstallPromptEvent from Chrome/Edge/Samsung Internet so
@@ -821,6 +919,79 @@
         }
       }
       $root.appendChild(main);
+
+      // Appliances sidebar + backdrop live outside the layout flow so they
+      // can overlay content when toggled open.
+      if (state.authenticated) {
+        $root.appendChild(buildSidebarBackdrop());
+        $root.appendChild(buildSidebar());
+      }
+    }
+
+    function buildSidebarBackdrop() {
+      return h("div", {
+        class: "sidebar-backdrop" + (state.sidebarOpen ? " open" : ""),
+        onClick: () => { if (state.sidebarOpen) { state.sidebarOpen = false; render(); } },
+      });
+    }
+
+    function buildSidebar() {
+      const canEdit = canEditStructure();
+      const kids = [
+        h("h2", {}, [
+          h("span", { text: "Appliances" }),
+          h("button", {
+            type: "button",
+            class: "icon ghost",
+            style: "margin-left:auto",
+            "aria-label": "Close sidebar",
+            onClick: () => { state.sidebarOpen = false; render(); },
+            text: "×",
+          }),
+        ]),
+      ];
+      if (canEdit) {
+        kids.push(h("button", {
+          type: "button",
+          class: "sb-add",
+          onClick: () => {
+            state.sidebarOpen = false;
+            render();
+            openApplianceDialog();
+          },
+          text: "+ Add appliance",
+        }));
+      }
+      if (state.appliances.length === 0) {
+        kids.push(h("div", { style: "color:rgba(232,236,247,0.65);padding:0.5rem 0.2rem", text: "No appliances yet." }));
+      } else {
+        for (const a of state.appliances) {
+          const itemCount = state.items.filter(i => i.appliance_id === a.id).length;
+          const isActive = state.view === "appliance" && state.activeApplianceId === a.id;
+          const metaParts = [itemCount + " " + pluralize("item", itemCount), a.kind];
+          if (state.familyId && a.owner_account_name && a.owner_account_id !== state.accountId) {
+            metaParts.push(a.owner_account_name);
+          }
+          kids.push(h("button", {
+            type: "button",
+            class: "sb-item",
+            "aria-current": isActive ? "true" : null,
+            onClick: () => {
+              state.view = "appliance";
+              state.activeApplianceId = a.id;
+              state.sidebarOpen = false;
+              render();
+            },
+          }, [
+            h("div", { style: "font-weight:600", text: a.name }),
+            h("span", { class: "sb-meta", text: metaParts.join(" · ") }),
+          ]));
+        }
+      }
+      return h("aside", {
+        class: "sidebar" + (state.sidebarOpen ? " open" : ""),
+        "aria-label": "Appliances",
+      }, kids);
     }
 
     function buildHeader() {
@@ -900,7 +1071,22 @@
         }));
       }
 
-      const header = h("header", { class: "app" }, [title, nav, ...extras]);
+      // Hamburger toggle for the appliance sidebar. Only when authenticated.
+      const sidebarBtn = state.authenticated
+        ? h("button", {
+            type: "button",
+            class: "icon ghost",
+            "aria-label": state.sidebarOpen ? "Close appliances sidebar" : "Open appliances sidebar",
+            "aria-expanded": state.sidebarOpen ? "true" : "false",
+            title: "Appliances",
+            onClick: () => { state.sidebarOpen = !state.sidebarOpen; render(); },
+            text: "≡",
+          })
+        : null;
+
+      const header = h("header", { class: "app" }, [
+        sidebarBtn, title, nav, ...extras,
+      ].filter(Boolean));
       return header;
     }
 
