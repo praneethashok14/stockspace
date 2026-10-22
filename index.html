@@ -240,6 +240,21 @@
       border-color: var(--chrome-border);
       color: var(--chrome-text);
     }
+    /* View-mode toggle is a filled pill with text so it reads as a label and
+       doesn't visually collide with the icon-only hamburger button. */
+    header.app button.density-btn {
+      background: var(--chrome-hover);
+      border-color: var(--chrome-strong);
+      padding: 0.4rem 0.7rem;
+      min-height: 40px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      white-space: nowrap;
+      border-radius: 999px;
+    }
+    header.app button.density-btn:hover:not(:disabled) {
+      background: var(--chrome-strong);
+    }
     .sidebar {
       position: fixed;
       top: 0;
@@ -1165,17 +1180,20 @@
         text: currentTheme === "dark" ? "☾" : (currentTheme === "light" ? "☀" : "◐"),
       });
 
-      // Row density toggle: cycles full → compact → grid → full. Only
-      // meaningful when authenticated.
+      // Row density toggle: cycles full → compact → grid → full. Shown as a
+      // text pill (not an icon) so it reads clearly as a label and doesn't
+      // get confused with the hamburger sidebar button next to it.
       const nextDensity = { full: "compact", compact: "grid", grid: "full" }[state.density];
+      const densityGlyph = state.density === "grid" ? "▦" : (state.density === "compact" ? "▤" : "❏");
+      const densityLabel = state.density.charAt(0).toUpperCase() + state.density.slice(1);
       const densityBtn = state.authenticated
         ? h("button", {
             type: "button",
-            class: "icon ghost",
+            class: "ghost density-btn",
             "aria-label": "Switch to " + nextDensity + " view (current: " + state.density + ")",
             title: "Switch to " + nextDensity + " view",
             onClick: toggleDensity,
-            text: state.density === "grid" ? "▦" : (state.density === "compact" ? "▤" : "☰"),
+            text: densityGlyph + " " + densityLabel,
           })
         : null;
 
