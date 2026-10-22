@@ -507,18 +507,22 @@
       overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
     }
     @media (max-width: 720px) {
-      header.app { flex-wrap: wrap; }
-      nav.main {
-        width: 100%;
-        margin-left: 0;
-        order: 3;
-        justify-content: flex-start;
-      }
-      nav.main button { flex: 1 1 auto; min-width: 0; }
+      /* On narrow viewports we move the primary nav into the sidebar drawer,
+         so the topbar only carries the hamburger + title + a few icon
+         controls and stays on one line. */
+      header.app > nav.main { display: none; }
+    }
+    /* The in-sidebar nav section is suppressed on wide viewports where the
+       nav lives in the header instead. */
+    @media (min-width: 721px) {
+      .sidebar .sb-nav { display: none; }
     }
     @media (max-width: 540px) {
       header.app { padding-top: max(0.5rem, env(safe-area-inset-top)); gap: 0.5rem; }
       header.app h1 { font-size: 1rem; }
+      /* The account-name pill is redundant with the sidebar greeting on
+         phone-sized screens, hide it to save a line. */
+      header.app h1 .pill { display: none; }
       main.app { padding: 0.75rem; padding-left: max(0.75rem, env(safe-area-inset-left));
                  padding-right: max(0.75rem, env(safe-area-inset-right));
                  padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
@@ -1023,17 +1027,54 @@
       const canEdit = canEditStructure();
       const kids = [
         h("h2", {}, [
-          h("span", { text: "Appliances" }),
+          h("span", { text: "Menu" }),
           h("button", {
             type: "button",
             class: "icon ghost",
-            style: "margin-left:auto",
+            style: "margin-left:auto;min-height:36px;min-width:36px",
             "aria-label": "Close sidebar",
             onClick: () => { state.sidebarOpen = false; render(); },
             text: "×",
           }),
         ]),
       ];
+
+      // Primary nav lives in the sidebar on narrow screens (the header hides it
+      // there to save space); on wide screens the CSS hides .sb-nav because
+      // the topbar still shows these buttons.
+      const navSection = h("div", { class: "sb-nav", style: "display:flex;flex-direction:column;gap:0.3rem" });
+      for (const [view, label] of [
+        ["dashboard", "Dashboard"],
+        ["appliances", "Appliances"],
+        ["inventory", "All Inventory"],
+        ["settings", "Settings"],
+      ]) {
+        navSection.appendChild(h("button", {
+          type: "button",
+          class: "sb-item",
+          "aria-current": state.view === view && state.activeApplianceId == null ? "true" : null,
+          onClick: () => {
+            state.view = view;
+            state.activeApplianceId = null;
+            if (view === "settings") state.family = null;
+            if (narrow) state.sidebarOpen = false;
+            render();
+          },
+          text: label,
+        }));
+      }
+      navSection.appendChild(h("button", {
+        type: "button",
+        class: "sb-item",
+        onClick: () => {
+          if (narrow) state.sidebarOpen = false;
+          lock();
+        },
+        text: "Lock",
+      }));
+      kids.push(navSection);
+
+      kids.push(h("h2", { style: "margin-top:0.5rem" }, [h("span", { text: "Appliances" })]));
       if (canEdit) {
         kids.push(h("button", {
           type: "button",
