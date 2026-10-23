@@ -215,15 +215,27 @@
       color: var(--chrome-text);
     }
     header.app h1 .wordmark {
-      /* Transparent-bg SVG wordmark that sits on the chrome colour. Width
-         scales to viewport so the whole word fits on narrow screens. */
-      height: 38px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      line-height: 1;
+      color: var(--chrome-text);
+    }
+    header.app h1 .wordmark-icon {
+      height: 32px;
       width: auto;
-      max-width: min(280px, 50vw);
       display: block;
     }
+    header.app h1 .wordmark-text {
+      font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 1.35rem;
+      letter-spacing: -0.01em;
+      line-height: 1;
+    }
     @media (max-width: 540px) {
-      header.app h1 .wordmark { height: 30px; max-width: 44vw; }
+      header.app h1 .wordmark-icon { height: 26px; }
+      header.app h1 .wordmark-text { font-size: 1.1rem; }
     }
     header.app button {
       background: transparent;
@@ -546,7 +558,16 @@
       .sidebar .sb-nav { display: none; }
     }
     @media (max-width: 540px) {
-      header.app { padding-top: max(0.5rem, env(safe-area-inset-top)); gap: 0.5rem; }
+      /* On big-notch iPhones env(safe-area-inset-top) alone is enough space
+         above the content; stacking an extra 0.5rem on top leaves a visible
+         empty band of chrome between the status-bar icons and the wordmark.
+         Use a tiny floor only for notch-less devices, and tighten the bottom
+         padding too so the bar isn't disproportionately tall. */
+      header.app {
+        padding-top: max(0.15rem, env(safe-area-inset-top));
+        padding-bottom: 0.45rem;
+        gap: 0.5rem;
+      }
       header.app h1 { font-size: 1rem; }
       /* The account-name pill is redundant with the sidebar greeting on
          phone-sized screens, hide it to save a line. */
@@ -1145,18 +1166,24 @@
     }
 
     function buildHeader() {
-      // Pick the wordmark whose content colour contrasts with the current
-      // chrome bg. --chrome-text is `#11182c` on bright chromes and `#e8ecf7`
-      // on dark ones, so we read it to choose which SVG to show. The SVG
-      // backgrounds are transparent — the chrome colour itself shows through.
+      // Icon-only mark + "StockSpace" as real Poppins text. Rendering the
+      // word as text instead of as part of the SVG keeps it crisp on retina
+      // (the full wordmark SVG had sub-pixel strokes that iOS blurred).
+      // --chrome-text is `#11182c` on bright chromes and `#e8ecf7` on dark
+      // ones, so we read it to pick which icon colouring to show.
       const chromeText = getComputedStyle(document.documentElement)
         .getPropertyValue("--chrome-text").trim().toLowerCase();
       const chromeIsDark = chromeText !== "#11182c";
-      const wordmark = h("img", {
-        src: chromeIsDark ? "/icons/wordmark-on-dark.svg" : "/icons/wordmark-on-light.svg",
-        alt: "StockSpace",
-        class: "wordmark",
+      const mark = h("img", {
+        src: chromeIsDark ? "/icons/mark-on-dark.svg" : "/icons/mark-on-light.svg",
+        alt: "",
+        class: "wordmark-icon",
+        "aria-hidden": "true",
       });
+      const wordmark = h("span", { class: "wordmark", role: "img", "aria-label": "StockSpace" }, [
+        mark,
+        h("span", { class: "wordmark-text", text: "StockSpace" }),
+      ]);
       const titleChildren = [wordmark];
       if (state.authenticated && state.accountName) {
         titleChildren.push(h("span", { class: "pill", style: "margin-left:0.5rem;font-weight:500", text: state.accountName }));
