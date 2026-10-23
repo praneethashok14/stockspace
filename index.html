@@ -221,6 +221,18 @@
       line-height: 1;
       color: var(--chrome-text);
     }
+    header.app h1 button.wordmark-btn {
+      background: transparent;
+      border: 0;
+      padding: 0.2rem 0.3rem;
+      margin: -0.2rem -0.3rem;
+      min-height: 0;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    header.app h1 button.wordmark-btn:hover {
+      background: var(--chrome-hover);
+    }
     header.app h1 .wordmark-icon {
       /* Integer px heights avoid sub-pixel rasterisation on retina. */
       height: 30px;
@@ -1193,10 +1205,22 @@
         class: "wordmark-icon",
         "aria-hidden": "true",
       });
-      const wordmark = h("span", { class: "wordmark", role: "img", "aria-label": "StockSpace" }, [
-        mark,
-        h("span", { class: "wordmark-text", text: "StockSpace" }),
-      ]);
+      // Logo is a button when signed in: tap sends you to the dashboard.
+      // Falls back to a plain span on auth screens.
+      const wordmarkChildren = [mark, h("span", { class: "wordmark-text", text: "StockSpace" })];
+      const wordmark = state.authenticated
+        ? h("button", {
+            type: "button",
+            class: "wordmark wordmark-btn",
+            "aria-label": "Go to dashboard",
+            onClick: () => {
+              state.view = "dashboard";
+              state.family = null;
+              if (state.sidebarOpen && window.innerWidth <= 720) state.sidebarOpen = false;
+              render();
+            },
+          }, wordmarkChildren)
+        : h("span", { class: "wordmark", role: "img", "aria-label": "StockSpace" }, wordmarkChildren);
       const titleChildren = [wordmark];
       if (state.authenticated && state.accountName) {
         titleChildren.push(h("span", { class: "pill", style: "margin-left:0.5rem;font-weight:500", text: state.accountName }));
