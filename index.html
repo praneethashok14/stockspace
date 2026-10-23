@@ -264,21 +264,10 @@
     header.app button:hover:not(:disabled) {
       background: var(--chrome-hover);
     }
-    header.app button.primary,
-    header.app nav.main button[aria-current="page"] {
+    header.app button.primary {
       background: var(--chrome-hover);
       color: var(--chrome-text);
       border-color: var(--chrome-strong);
-    }
-    nav.main {
-      display: flex;
-      gap: 0.25rem;
-      flex-wrap: wrap;
-      margin-left: auto;
-    }
-    nav.main button {
-      min-height: 44px;
-      padding: 0.4rem 0.75rem;
     }
     header.app .pill {
       background: var(--chrome-hover);
@@ -571,17 +560,8 @@
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
       overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
     }
-    @media (max-width: 720px) {
-      /* On narrow viewports we move the primary nav into the sidebar drawer,
-         so the topbar only carries the hamburger + title + a few icon
-         controls and stays on one line. */
-      header.app > nav.main { display: none; }
-    }
-    /* The in-sidebar nav section is suppressed on wide viewports where the
-       nav lives in the header instead. */
-    @media (min-width: 721px) {
-      .sidebar .sb-nav { display: none; }
-    }
+    /* Primary nav lives in the sidebar's .sb-nav section on every width —
+       the header no longer renders a nav bar at all. */
     @media (max-width: 540px) {
       /* On big-notch iPhones env(safe-area-inset-top) alone is enough space
          above the content; stacking an extra 0.5rem on top leaves a visible
@@ -624,7 +604,6 @@
       .dash-grid { grid-template-columns: 1fr 1fr; }
       .dash-stat .big { font-size: 1.4rem; }
       .filters { grid-template-columns: 1fr 1fr; }
-      nav.main button { padding: 0.35rem 0.5rem; font-size: 0.9rem; }
     }
   </style>
 </head>
@@ -758,7 +737,9 @@
         } catch (_) {}
         return "full";
       })(),
-      sidebarOpen: false,
+      // Default-open on wide screens where it docks beside the content;
+      // default-closed on narrow where it would overlay the whole view.
+      sidebarOpen: (typeof window !== "undefined" && window.innerWidth > 720),
       // User overrides for the chrome (topbar + sidebar) and main background
       // colours, keyed by effective colour scheme. null = use the baked-in
       // defaults in CSS. All stored as hex strings (what <input type=color>
@@ -1227,38 +1208,9 @@
       }
       const title = h("h1", {}, titleChildren);
 
-      const nav = h("nav", { class: "main", "aria-label": "Primary" });
-      if (state.authenticated) {
-        for (const [view, label] of [
-          ["dashboard", "Dashboard"],
-          ["appliances", "Appliances"],
-          ["inventory", "All Inventory"],
-          ["settings", "Settings"],
-        ]) {
-          nav.appendChild(
-            h("button", {
-              type: "button",
-              "aria-current": state.view === view ? "page" : null,
-              onClick: () => {
-                state.view = view;
-                state.activeApplianceId = null;
-                if (view === "settings") state.family = null;
-                render();
-              },
-              text: label,
-            }),
-          );
-        }
-        nav.appendChild(
-          h("button", {
-            type: "button",
-            class: "ghost",
-            title: "Lock",
-            onClick: () => lock(),
-            text: "Lock",
-          }),
-        );
-      }
+      // Primary nav now lives exclusively in the sidebar (sb-nav section),
+      // so the header no longer carries Dashboard / Appliances / Settings /
+      // Lock buttons on any screen size.
 
       // Theme toggle
       const currentTheme = document.documentElement.dataset.theme || "auto";
@@ -1314,8 +1266,11 @@
           })
         : null;
 
+      // flex:1 on the title eats the remaining space so the extras (density
+      // toggle, theme toggle, Install) sit flush against the right edge.
+      title.style.flex = "1";
       const header = h("header", { class: "app" }, [
-        sidebarBtn, title, nav, ...extras,
+        sidebarBtn, title, ...extras,
       ].filter(Boolean));
       return header;
     }
