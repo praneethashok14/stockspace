@@ -222,20 +222,27 @@
       color: var(--chrome-text);
     }
     header.app h1 .wordmark-icon {
-      height: 32px;
+      /* Integer px heights avoid sub-pixel rasterisation on retina. */
+      height: 30px;
       width: auto;
       display: block;
+      image-rendering: -webkit-optimize-contrast;
     }
     header.app h1 .wordmark-text {
       font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-weight: 600;
-      font-size: 1.35rem;
+      /* Integer px avoids the fractional size that iOS Safari rasterises
+         blurry on the sticky header's GPU layer. */
+      font-size: 20px;
       letter-spacing: -0.01em;
       line-height: 1;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
     }
     @media (max-width: 540px) {
-      header.app h1 .wordmark-icon { height: 26px; }
-      header.app h1 .wordmark-text { font-size: 1.1rem; }
+      header.app h1 .wordmark-icon { height: 24px; }
+      header.app h1 .wordmark-text { font-size: 17px; }
     }
     header.app button {
       background: transparent;
