@@ -211,6 +211,17 @@
       flex-wrap: wrap;
       color: var(--chrome-text);
     }
+    header.app h1 .wordmark {
+      /* Transparent-bg SVG wordmark that sits on the chrome colour. Width
+         scales to viewport so the whole word fits on narrow screens. */
+      height: 28px;
+      width: auto;
+      max-width: min(220px, 42vw);
+      display: block;
+    }
+    @media (max-width: 540px) {
+      header.app h1 .wordmark { height: 22px; max-width: 38vw; }
+    }
     header.app button {
       background: transparent;
       color: var(--chrome-text);
@@ -1131,7 +1142,19 @@
     }
 
     function buildHeader() {
-      const titleChildren = [h("span", { text: "StockSpace" })];
+      // Pick the wordmark whose content colour contrasts with the current
+      // chrome bg. --chrome-text is `#11182c` on bright chromes and `#e8ecf7`
+      // on dark ones, so we read it to choose which SVG to show. The SVG
+      // backgrounds are transparent — the chrome colour itself shows through.
+      const chromeText = getComputedStyle(document.documentElement)
+        .getPropertyValue("--chrome-text").trim().toLowerCase();
+      const chromeIsDark = chromeText !== "#11182c";
+      const wordmark = h("img", {
+        src: chromeIsDark ? "/icons/wordmark-on-dark.svg" : "/icons/wordmark-on-light.svg",
+        alt: "StockSpace",
+        class: "wordmark",
+      });
+      const titleChildren = [wordmark];
       if (state.authenticated && state.accountName) {
         titleChildren.push(h("span", { class: "pill", style: "margin-left:0.5rem;font-weight:500", text: state.accountName }));
       }
@@ -3583,9 +3606,13 @@
       applyCustomTheme();
     })();
     // Reapply custom theme when the OS flips light/dark while in auto mode.
+    // Re-render too so the wordmark swaps to match the new chrome luminance.
     try {
       window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-        if (!document.documentElement.dataset.theme) applyCustomTheme();
+        if (!document.documentElement.dataset.theme) {
+          applyCustomTheme();
+          try { render(); } catch (_) {}
+        }
       });
     } catch (_) {}
 
