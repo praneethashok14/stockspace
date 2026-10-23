@@ -423,6 +423,12 @@
       padding: 1.25rem;
       max-width: 520px;
       width: 100%;
+      /* Cap the dialog to the viewport and let its own body scroll, so tall
+         forms (Add item, etc.) don't overflow the fold on any screen size. */
+      max-height: calc(100vh - 2rem);
+      max-height: calc(100dvh - 2rem);
+      overflow-y: auto;
+      overscroll-behavior: contain;
       box-shadow: var(--shadow);
     }
     .dialog h2 { margin-top: 0; }
