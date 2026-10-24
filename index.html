@@ -655,6 +655,19 @@
       font-weight: 700;
       font-variant-numeric: tabular-nums;
     }
+    /* When a stat card is clickable it renders as a <button>; strip the
+       default button chrome and add a subtle hover affordance. */
+    .dash-stat-link {
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      color: inherit;
+      min-height: 0;
+    }
+    .dash-stat-link:hover:not(:disabled) {
+      background: var(--surface-2);
+      border-color: color-mix(in srgb, var(--text) 25%, var(--border));
+    }
     .dash-stat.danger {
       background: var(--danger-bg);
       border-color: var(--danger);
@@ -1715,7 +1728,11 @@
           return h("section", { class: "dash-grid", "aria-label": "Overview" }, [
             statCard("Appliances", state.appliances.length),
             statCard("Groups", state.groups.length),
-            statCard("Items", state.items.length),
+            statCard("Items", state.items.length, "", () => {
+              state.view = "inventory";
+              state.activeApplianceId = null;
+              render();
+            }),
             statCard("Expired", totals.expired, "danger"),
             statCard("Expiring in ≤ 7 days", totals.soon, "warning"),
           ]);
@@ -1959,11 +1976,19 @@
       return main;
     }
 
-    function statCard(label, value, kind = "") {
-      return h("div", { class: "card dash-stat " + kind }, [
+    function statCard(label, value, kind = "", onClick = null) {
+      const children = [
         h("div", { class: "muted", text: label }),
         h("div", { class: "big", text: String(value) }),
-      ]);
+      ];
+      if (onClick) {
+        return h("button", {
+          type: "button",
+          class: "card dash-stat dash-stat-link " + kind,
+          onClick,
+        }, children);
+      }
+      return h("div", { class: "card dash-stat " + kind }, children);
     }
 
     function computeTotals() {
