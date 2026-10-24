@@ -380,19 +380,28 @@
       min-height: 0;
       cursor: pointer;
     }
-    .sidebar .sb-item .sb-icon {
+    /* Scoped to .sidebar (not .sb-item) so .sb-close and any future sidebar
+       icons also get sized correctly. */
+    .sidebar .sb-icon {
       flex: 0 0 auto;
       display: inline-flex;
       width: 20px;
       height: 20px;
       opacity: 0.85;
     }
-    .sidebar .sb-item .sb-icon svg {
+    .sidebar .sb-icon svg {
       width: 100%;
       height: 100%;
       display: block;
     }
     .sidebar .sb-item[aria-current="true"] .sb-icon { opacity: 1; }
+    /* Close button hover: use the chrome-tinted overlay so it doesn't fall
+       back to the global light-gray button hover (which looked white on the
+       dark sidebar). */
+    .sidebar .sb-close:hover:not(:disabled) {
+      background: var(--chrome-hover);
+    }
+    .sidebar .sb-close .sb-icon { opacity: 1; }
     .sidebar .sb-item:hover:not(:disabled) {
       background: var(--chrome-hover);
     }
