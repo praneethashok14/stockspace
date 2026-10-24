@@ -519,6 +519,47 @@
       gap: 0.75rem;
       margin-bottom: 1rem;
     }
+    /* Dashboard module wrapper: adds vertical rhythm between modules and
+       hosts the edit-mode controls (drag handle, up/down, visibility). */
+    .dash-module { margin-bottom: 1rem; }
+    .dash-module:last-child { margin-bottom: 0; }
+    .dash-module-edit {
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 0.6rem;
+      background: var(--surface);
+    }
+    .dash-module-edit.hidden-mod { opacity: 0.55; }
+    .dash-module-edit.dragging { opacity: 0.4; }
+    .dash-module-head {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0.6rem;
+      flex-wrap: wrap;
+    }
+    .dash-drag {
+      cursor: grab;
+      color: var(--muted);
+      font-size: 1.1rem;
+      line-height: 1;
+      user-select: none;
+      padding: 0 0.2rem;
+    }
+    .dash-module-edit.dragging .dash-drag { cursor: grabbing; }
+    .dash-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .dash-toggle input[type="checkbox"] {
+      width: auto; min-height: 0; margin: 0; cursor: pointer;
+    }
     .dash-stat .big {
       font-size: 1.8rem;
       font-weight: 700;
@@ -742,6 +783,36 @@
       // Default-open on wide screens where it docks beside the content;
       // default-closed on narrow where it would overlay the whole view.
       sidebarOpen: (typeof window !== "undefined" && window.innerWidth > 720),
+      // Dashboard modules the user can toggle on/off and reorder. Stored as
+      // an array of { id, visible } so the ORDER is the user's layout and
+      // toggle state is per-module. Unknown modules in storage are dropped;
+      // modules missing from storage get appended visible (so new features
+      // show up automatically on upgrade). Edit mode exposes drag + toggle.
+      dashboardLayout: (function () {
+        const DEFAULT = [
+          { id: "search", visible: true },
+          { id: "stats", visible: true },
+          { id: "expiring", visible: true },
+          { id: "appliances", visible: true },
+        ];
+        const KNOWN = new Set(DEFAULT.map(m => m.id));
+        try {
+          const raw = localStorage.getItem("stockspace_dashboard_layout");
+          if (!raw) return DEFAULT;
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) return DEFAULT;
+          const seen = new Set();
+          const cleaned = [];
+          for (const row of parsed) {
+            if (!row || typeof row.id !== "string" || !KNOWN.has(row.id) || seen.has(row.id)) continue;
+            cleaned.push({ id: row.id, visible: row.visible !== false });
+            seen.add(row.id);
+          }
+          for (const m of DEFAULT) if (!seen.has(m.id)) cleaned.push({ ...m });
+          return cleaned;
+        } catch (_) { return DEFAULT; }
+      })(),
+      dashboardEditing: false,
       // User overrides for the chrome (topbar + sidebar) and main background
       // colours, keyed by effective colour scheme. null = use the baked-in
       // defaults in CSS. All stored as hex strings (what <input type=color>
@@ -1491,46 +1562,168 @@
 
     // ---------- dashboard ----------
 
+    // ---------- dashboard modules ----------
+    // Each module has an id, a human title (shown in edit mode), and a
+    // render() that returns a DOM node (or null to render nothing). Order
+    // and visibility come from state.dashboardLayout.
+    const DASHBOARD_MODULES = {
+      search: {
+        title: "Search bar",
+        render: () => {
+          if (state.items.length === 0 && state.appliances.length === 0) return null;
+          const searchInput = h("input", {
+            type: "search",
+            inputmode: "search",
+            placeholder: "Search items, groups, categories, notes…",
+            "aria-label": "Search inventory",
+            value: state.filters.q,
+            onInput: (e) => { state.filters.q = e.target.value; render(); },
+          });
+          const card = h("div", { class: "card" }, [
+            h("label", { style: "margin-top:0" }, [
+              h("span", { style: "display:flex;align-items:center;gap:0.5rem;justify-content:space-between" }, [
+                h("span", { text: "Search" }),
+                state.filters.q.trim()
+                  ? h("button", {
+                      type: "button", class: "ghost",
+                      onClick: () => { state.filters.q = ""; render(); },
+                      text: "Clear",
+                    })
+                  : null,
+              ]),
+              searchInput,
+            ]),
+          ]);
+          queueMicrotask(() => { if (state.filters.q) searchInput.focus(); });
+          return card;
+        },
+      },
+      stats: {
+        title: "Overview stats",
+        render: () => {
+          const totals = computeTotals();
+          return h("section", { class: "dash-grid", "aria-label": "Overview" }, [
+            statCard("Appliances", state.appliances.length),
+            statCard("Groups", state.groups.length),
+            statCard("Items", state.items.length),
+            statCard("Expired", totals.expired, "danger"),
+            statCard("Expiring in ≤ 7 days", totals.soon, "warning"),
+          ]);
+        },
+      },
+      expiring: {
+        title: "Expiring or expired items",
+        render: () => {
+          if (state.appliances.length === 0) return null;
+          const soonItems = state.items
+            .map(i => ({ i, state: expirationState(i.expiration_date) }))
+            .filter(x => x.state === "expired" || x.state === "soon")
+            .sort((a, b) => (a.i.expiration_date || "").localeCompare(b.i.expiration_date || ""));
+          if (soonItems.length === 0) return null;
+          const list = newItemsContainer();
+          for (const { i } of soonItems.slice(0, 20)) {
+            list.appendChild(renderInventoryItem(i, { showAppliance: true }));
+          }
+          return h("section", { class: "card stack", "aria-labelledby": "soon-h" }, [
+            h("h2", { id: "soon-h", style: "margin-top:0", text: "Expiring or expired" }),
+            list,
+          ]);
+        },
+      },
+      appliances: {
+        title: "Appliance summaries",
+        render: () => {
+          if (state.appliances.length === 0) return null;
+          const grid = h("section", { class: "dash-grid", "aria-label": "Appliances" });
+          for (const a of state.appliances) {
+            const items = state.items.filter(i => i.appliance_id === a.id);
+            const topRow = [
+              h("strong", { text: a.name }),
+              h("span", { class: "pill", text: a.kind }),
+            ];
+            if (state.familyId && a.owner_account_name && a.owner_account_id !== state.accountId) {
+              topRow.push(h("span", { class: "pill accent", text: a.owner_account_name }));
+            }
+            const card = h("button", {
+              class: "card stack",
+              style: "text-align:left;cursor:pointer;",
+              onClick: () => { state.activeApplianceId = a.id; state.view = "appliance"; render(); },
+            }, [
+              h("div", { class: "row" }, topRow),
+              h("div", { class: "muted", text: items.length + " " + pluralize("item", items.length) }),
+              a.location ? h("div", { class: "muted", text: a.location }) : null,
+            ]);
+            grid.appendChild(card);
+          }
+          return grid;
+        },
+      },
+    };
+
+    function saveDashboardLayout() {
+      try {
+        localStorage.setItem(
+          "stockspace_dashboard_layout",
+          JSON.stringify(state.dashboardLayout),
+        );
+      } catch (_) {}
+    }
+
+    function moveDashboardModule(fromIdx, toIdx) {
+      if (toIdx < 0 || toIdx >= state.dashboardLayout.length || fromIdx === toIdx) return;
+      const [row] = state.dashboardLayout.splice(fromIdx, 1);
+      state.dashboardLayout.splice(toIdx, 0, row);
+      saveDashboardLayout();
+    }
+
     function renderDashboard() {
       const main = h("main", { class: "app" });
+      const editing = state.dashboardEditing;
 
-      // Global search bar — always visible at the top of the dashboard.
-      // Typing anything hides the normal dashboard and shows matching items.
-      const searchInput = h("input", {
-        type: "search",
-        inputmode: "search",
-        placeholder: "Search items, groups, categories, notes…",
-        "aria-label": "Search inventory",
-        value: state.filters.q,
-        onInput: (e) => { state.filters.q = e.target.value; render(); },
-      });
-      const searchCard = h("div", { class: "card", style: "margin-bottom:1rem" }, [
-        h("label", { style: "margin-top:0" }, [
-          h("span", { style: "display:flex;align-items:center;gap:0.5rem;justify-content:space-between" }, [
-            h("span", { text: "Search" }),
-            state.filters.q.trim()
-              ? h("button", {
-                  type: "button", class: "ghost",
-                  onClick: () => { state.filters.q = ""; render(); },
-                  text: "Clear",
-                })
-              : null,
-          ]),
-          searchInput,
-        ]),
+      // Toolbar: Edit layout / Done + (edit-only) Reset.
+      const toolbar = h("div", {
+        class: "row",
+        style: "justify-content:flex-end;gap:0.4rem;margin-bottom:0.75rem;flex-wrap:wrap",
+      }, [
+        editing
+          ? h("button", {
+              type: "button", class: "ghost",
+              onClick: () => {
+                state.dashboardLayout = [
+                  { id: "search", visible: true },
+                  { id: "stats", visible: true },
+                  { id: "expiring", visible: true },
+                  { id: "appliances", visible: true },
+                ];
+                saveDashboardLayout();
+                render();
+              },
+              text: "Reset layout",
+            })
+          : null,
+        h("button", {
+          type: "button",
+          class: editing ? "primary" : "ghost",
+          onClick: () => {
+            state.dashboardEditing = !state.dashboardEditing;
+            if (!state.dashboardEditing) saveDashboardLayout();
+            render();
+          },
+          text: editing ? "Done" : "✎ Edit layout",
+        }),
       ]);
-      // Only show the search card if there are items (otherwise it's noise).
-      if (state.items.length > 0 || state.appliances.length > 0) {
-        main.appendChild(searchCard);
-        queueMicrotask(() => {
-          // Preserve caret / focus state when re-rendering during typing.
-          if (state.filters.q) searchInput.focus();
-        });
-      }
+      main.appendChild(toolbar);
 
-      // When the search box has content, show a flat result list instead of
-      // the normal dashboard.
-      if (state.filters.q.trim()) {
+      // Search short-circuit: typing in the search box takes over the view
+      // and shows a flat result list instead of the normal dashboard. Only
+      // applies when NOT editing (so you can rearrange with a query present).
+      if (!editing && state.filters.q.trim()) {
+        // Still render the search module itself so the user can clear it.
+        const searchEntry = state.dashboardLayout.find(m => m.id === "search" && m.visible);
+        if (searchEntry) {
+          const node = DASHBOARD_MODULES.search.render();
+          if (node) main.appendChild(node);
+        }
         const matches = applyFilters(state.items);
         if (matches.length === 0) {
           main.appendChild(h("div", { class: "card empty" }, [
@@ -1548,17 +1741,16 @@
         return main;
       }
 
-      const totals = computeTotals();
-      const stats = h("section", { class: "dash-grid", "aria-label": "Overview" }, [
-        statCard("Appliances", state.appliances.length),
-        statCard("Groups", state.groups.length),
-        statCard("Items", state.items.length),
-        statCard("Expired", totals.expired, "danger"),
-        statCard("Expiring in ≤ 7 days", totals.soon, "warning"),
-      ]);
-      main.appendChild(stats);
-
-      if (state.appliances.length === 0) {
+      // No-appliances empty state only when NOT editing (so the user can
+      // still rearrange their layout on a fresh account).
+      if (!editing && state.appliances.length === 0) {
+        // Still render search module above the empty state if visible.
+        for (const entry of state.dashboardLayout) {
+          if (entry.id !== "search" || !entry.visible) continue;
+          const node = DASHBOARD_MODULES.search.render();
+          if (node) main.appendChild(node);
+          break;
+        }
         if (canEditStructure()) {
           main.appendChild(emptyState(
             "No appliances yet",
@@ -1575,45 +1767,85 @@
         return main;
       }
 
-      // Expiring soon section
-      const soonItems = state.items
-        .map(i => ({ i, state: expirationState(i.expiration_date) }))
-        .filter(x => x.state === "expired" || x.state === "soon")
-        .sort((a, b) => (a.i.expiration_date || "").localeCompare(b.i.expiration_date || ""));
-      if (soonItems.length > 0) {
-        const list = newItemsContainer();
-        for (const { i } of soonItems.slice(0, 20)) {
-          list.appendChild(renderInventoryItem(i, { showAppliance: true }));
-        }
-        main.appendChild(h("section", { class: "card stack", "aria-labelledby": "soon-h" }, [
-          h("h2", { id: "soon-h", style: "margin-top:0", text: "Expiring or expired" }),
-          list,
-        ]));
-      }
+      // Render modules in layout order. In edit mode, every module shows
+      // (even if invisible) wrapped with reorder + toggle controls. Outside
+      // edit mode, only visible modules render.
+      for (let idx = 0; idx < state.dashboardLayout.length; idx++) {
+        const entry = state.dashboardLayout[idx];
+        const mod = DASHBOARD_MODULES[entry.id];
+        if (!mod) continue;
+        if (!editing && !entry.visible) continue;
 
-      // Appliance summaries
-      const grid = h("section", { class: "dash-grid", "aria-label": "Appliances" });
-      for (const a of state.appliances) {
-        const items = state.items.filter(i => i.appliance_id === a.id);
-        const topRow = [
-          h("strong", { text: a.name }),
-          h("span", { class: "pill", text: a.kind }),
-        ];
-        if (state.familyId && a.owner_account_name && a.owner_account_id !== state.accountId) {
-          topRow.push(h("span", { class: "pill accent", text: a.owner_account_name }));
+        const body = mod.render();
+        if (!editing) {
+          if (body) {
+            body.classList.add("dash-module");
+            main.appendChild(body);
+          }
+          continue;
         }
-        const card = h("button", {
-          class: "card stack",
-          style: "text-align:left;cursor:pointer;",
-          onClick: () => { state.activeApplianceId = a.id; state.view = "appliance"; render(); },
+
+        // Edit-mode wrapper: drag handle, title, move buttons, visibility.
+        const wrapper = h("div", {
+          class: "dash-module dash-module-edit" + (entry.visible ? "" : " hidden-mod"),
+          draggable: "true",
+          "data-idx": String(idx),
         }, [
-          h("div", { class: "row" }, topRow),
-          h("div", { class: "muted", text: items.length + " " + pluralize("item", items.length) }),
-          a.location ? h("div", { class: "muted", text: a.location }) : null,
+          h("div", { class: "dash-module-head" }, [
+            h("span", { class: "dash-drag", title: "Drag to reorder", "aria-hidden": "true", text: "⋮⋮" }),
+            h("strong", { text: mod.title, style: "flex:1" }),
+            h("button", {
+              type: "button", class: "ghost icon", title: "Move up",
+              "aria-label": "Move " + mod.title + " up",
+              disabled: idx === 0 ? "disabled" : null,
+              onClick: () => { moveDashboardModule(idx, idx - 1); render(); },
+              text: "↑",
+            }),
+            h("button", {
+              type: "button", class: "ghost icon", title: "Move down",
+              "aria-label": "Move " + mod.title + " down",
+              disabled: idx === state.dashboardLayout.length - 1 ? "disabled" : null,
+              onClick: () => { moveDashboardModule(idx, idx + 1); render(); },
+              text: "↓",
+            }),
+            h("label", { class: "dash-toggle", title: entry.visible ? "Hide" : "Show" }, [
+              h("input", {
+                type: "checkbox",
+                checked: entry.visible ? "checked" : null,
+                onChange: (e) => {
+                  entry.visible = e.target.checked;
+                  saveDashboardLayout();
+                  render();
+                },
+              }),
+              h("span", { text: entry.visible ? "Visible" : "Hidden" }),
+            ]),
+          ]),
+          body
+            ? h("div", { class: "dash-module-body" }, [body])
+            : h("div", { class: "dash-module-body muted", text: "(nothing to show right now)" }),
         ]);
-        grid.appendChild(card);
+
+        // Simple HTML5 drag + drop reorder. Mobile users have the ↑/↓ btns.
+        wrapper.addEventListener("dragstart", (e) => {
+          wrapper.classList.add("dragging");
+          try { e.dataTransfer.setData("text/plain", String(idx)); } catch (_) {}
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+        });
+        wrapper.addEventListener("dragend", () => wrapper.classList.remove("dragging"));
+        wrapper.addEventListener("dragover", (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; });
+        wrapper.addEventListener("drop", (e) => {
+          e.preventDefault();
+          let fromIdx = -1;
+          try { fromIdx = parseInt(e.dataTransfer.getData("text/plain"), 10); } catch (_) {}
+          if (!Number.isFinite(fromIdx) || fromIdx < 0) return;
+          const toIdx = idx;
+          moveDashboardModule(fromIdx, toIdx);
+          render();
+        });
+
+        main.appendChild(wrapper);
       }
-      main.appendChild(grid);
 
       return main;
     }
