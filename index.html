@@ -262,10 +262,13 @@
       color: var(--chrome-text);
     }
     header.app .header-search {
-      flex: 1 1 220px;
+      /* flex: 0 1 420px + margin:auto centers the pill in the remaining
+         space between the title (left) and the extras (right). */
+      flex: 0 1 420px;
       min-width: 140px;
       max-width: 420px;
       min-height: 36px;
+      margin: 0 auto;
       padding: 0.4rem 0.8rem;
       font-size: 0.95rem;
       background: var(--chrome-hover);
@@ -280,6 +283,31 @@
       border-color: var(--chrome-strong);
       background: var(--chrome-strong);
     }
+    /* Pill-shape every header button EXCEPT the sidebar hamburger. The
+       wordmark button lives inside the h1, not as a direct child of
+       header.app, so this selector doesn't touch it. */
+    header.app > button:not(.sidebar-btn) {
+      border-radius: 999px;
+    }
+    /* The density pill already has a bg; echo the same look on the icon
+       pills (theme, install) so they read as a matched set. Unify heights
+       with density-btn so all three line up on the right. */
+    header.app button.theme-btn,
+    header.app button.install-btn {
+      background: var(--chrome-hover);
+      border-color: var(--chrome-strong);
+    }
+    header.app button.theme-btn:hover:not(:disabled),
+    header.app button.install-btn:hover:not(:disabled) {
+      background: var(--chrome-strong);
+    }
+    header.app button.theme-btn,
+    header.app button.install-btn,
+    header.app button.density-btn {
+      min-height: 40px;
+      min-width: 40px;
+      align-self: center;
+    }
     @media (max-width: 720px) {
       /* On narrow viewports the search gets its own row below the header's
          top row (wordmark, hamburger, extras), so it has room to breathe. */
@@ -287,6 +315,7 @@
       header.app .header-search {
         flex: 1 1 100%;
         max-width: none;
+        margin: 0;
         order: 10;
       }
     }
@@ -1344,7 +1373,7 @@
       const currentTheme = document.documentElement.dataset.theme || "auto";
       const themeBtn = h("button", {
         type: "button",
-        class: "icon ghost",
+        class: "icon ghost theme-btn",
         "aria-label": "Toggle theme (current: " + currentTheme + ")",
         onClick: cycleTheme,
         text: currentTheme === "dark" ? "☾" : (currentTheme === "light" ? "☀" : "◐"),
@@ -1373,7 +1402,7 @@
       if (state.installPromptAvailable && !state.isInstalled) {
         extras.unshift(h("button", {
           type: "button",
-          class: "ghost",
+          class: "ghost install-btn",
           title: "Install StockSpace",
           onClick: triggerInstall,
           text: "⬇ Install",
@@ -1385,7 +1414,7 @@
       const sidebarBtn = state.authenticated && !state.sidebarOpen
         ? h("button", {
             type: "button",
-            class: "icon ghost",
+            class: "icon ghost sidebar-btn",
             "aria-label": "Open appliances sidebar",
             "aria-expanded": "false",
             title: "Appliances",
@@ -1394,8 +1423,9 @@
           })
         : null;
 
-      // When the search is present it grows to fill the row and pushes the
-      // extras to the right. Without it (auth screens), the title grows.
+      // Without a search in the header, grow the title so the extras hug the
+      // right edge. With search present, margin:auto on the search centers it
+      // (see header.app .header-search in CSS) and the title stays natural.
       if (!headerSearch) title.style.flex = "1";
       const header = h("header", { class: "app" }, [
         sidebarBtn, title, headerSearch, ...extras,
