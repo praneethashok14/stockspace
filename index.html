@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-title" content="StockSpace">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap">
   <style>
     :root {
       --bg: #f6f7fb;
@@ -76,7 +76,7 @@
     html, body { height: 100%; }
     body {
       margin: 0;
-      font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       font-size: 16px;
       color: var(--text);
       background: var(--bg);
@@ -217,7 +217,6 @@
     header.app h1 .wordmark {
       display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
       line-height: 1;
       color: var(--chrome-text);
     }
@@ -233,28 +232,16 @@
     header.app h1 button.wordmark-btn:hover {
       background: var(--chrome-hover);
     }
-    header.app h1 .wordmark-icon {
+    header.app h1 .wordmark-img {
       /* Integer px heights avoid sub-pixel rasterisation on retina. */
-      height: 30px;
+      height: 36px;
       width: auto;
       display: block;
+      max-width: min(260px, 46vw);
       image-rendering: -webkit-optimize-contrast;
     }
-    header.app h1 .wordmark-text {
-      font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-weight: 600;
-      /* Integer px avoids the fractional size that iOS Safari rasterises
-         blurry on the sticky header's GPU layer. */
-      font-size: 20px;
-      letter-spacing: -0.01em;
-      line-height: 1;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      text-rendering: optimizeLegibility;
-    }
     @media (max-width: 540px) {
-      header.app h1 .wordmark-icon { height: 24px; }
-      header.app h1 .wordmark-text { font-size: 17px; }
+      header.app h1 .wordmark-img { height: 28px; max-width: 40vw; }
     }
     header.app button {
       background: transparent;
@@ -1172,23 +1159,20 @@
     }
 
     function buildHeader() {
-      // Icon-only mark + "StockSpace" as real Poppins text. Rendering the
-      // word as text instead of as part of the SVG keeps it crisp on retina
-      // (the full wordmark SVG had sub-pixel strokes that iOS blurred).
-      // --chrome-text is `#11182c` on bright chromes and `#e8ecf7` on dark
-      // ones, so we read it to pick which icon colouring to show.
+      // Full SVG wordmark that sits on the chrome colour (its background rect
+      // is removed so the chrome shows through). --chrome-text is `#11182c`
+      // on bright chromes and `#e8ecf7` on dark ones, so we read it to pick
+      // which colour variant to show.
       const chromeText = getComputedStyle(document.documentElement)
         .getPropertyValue("--chrome-text").trim().toLowerCase();
       const chromeIsDark = chromeText !== "#11182c";
-      const mark = h("img", {
-        src: chromeIsDark ? "/icons/mark-on-dark.svg" : "/icons/mark-on-light.svg",
-        alt: "",
-        class: "wordmark-icon",
-        "aria-hidden": "true",
+      const wordmarkImg = h("img", {
+        src: chromeIsDark ? "/icons/wordmark-on-dark.svg" : "/icons/wordmark-on-light.svg",
+        alt: "StockSpace",
+        class: "wordmark-img",
       });
       // Logo is a button when signed in: tap sends you to the dashboard.
       // Falls back to a plain span on auth screens.
-      const wordmarkChildren = [mark, h("span", { class: "wordmark-text", text: "StockSpace" })];
       const wordmark = state.authenticated
         ? h("button", {
             type: "button",
@@ -1200,8 +1184,8 @@
               if (state.sidebarOpen && window.innerWidth <= 720) state.sidebarOpen = false;
               render();
             },
-          }, wordmarkChildren)
-        : h("span", { class: "wordmark", role: "img", "aria-label": "StockSpace" }, wordmarkChildren);
+          }, [wordmarkImg])
+        : h("span", { class: "wordmark" }, [wordmarkImg]);
       const titleChildren = [wordmark];
       if (state.authenticated && state.accountName) {
         titleChildren.push(h("span", { class: "pill", style: "margin-left:0.5rem;font-weight:500", text: state.accountName }));
