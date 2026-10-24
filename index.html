@@ -1505,6 +1505,19 @@
         const resolved = chrome || getComputedStyle(root).getPropertyValue("--chrome").trim();
         if (resolved) meta.setAttribute("content", resolved);
       }
+      // Keep the wordmark variant in sync with chrome darkness — not just
+      // light/dark MODE, but the actual chrome colour's luminance. That way a
+      // user who picks a dark chrome in light mode still gets the white-
+      // content wordmark, and vice versa. This runs on every theme change
+      // without waiting for the next render pass.
+      try {
+        const txtVar = getComputedStyle(root).getPropertyValue("--chrome-text").trim().toLowerCase();
+        const dark = txtVar !== "#11182c";
+        const src = dark ? "/icons/wordmark-on-dark.svg" : "/icons/wordmark-on-light.svg";
+        for (const img of document.querySelectorAll(".wordmark-img")) {
+          if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+        }
+      } catch (_) {}
     }
 
     function saveCustomTheme() {
