@@ -261,6 +261,35 @@
       border-color: var(--chrome-border);
       color: var(--chrome-text);
     }
+    header.app .header-search {
+      flex: 1 1 220px;
+      min-width: 140px;
+      max-width: 420px;
+      min-height: 36px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.95rem;
+      background: var(--chrome-hover);
+      color: var(--chrome-text);
+      border: 1px solid var(--chrome-border);
+      border-radius: 999px;
+      width: auto;
+    }
+    header.app .header-search::placeholder { color: var(--chrome-muted); }
+    header.app .header-search:focus {
+      outline: none;
+      border-color: var(--chrome-strong);
+      background: var(--chrome-strong);
+    }
+    @media (max-width: 720px) {
+      /* On narrow viewports the search gets its own row below the header's
+         top row (wordmark, hamburger, extras), so it has room to breathe. */
+      header.app { flex-wrap: wrap; }
+      header.app .header-search {
+        flex: 1 1 100%;
+        max-width: none;
+        order: 10;
+      }
+    }
     /* View-mode toggle is a filled pill with text so it reads as a label and
        doesn't visually collide with the icon-only hamburger button. */
     header.app button.density-btn {
@@ -790,7 +819,6 @@
       // show up automatically on upgrade). Edit mode exposes drag + toggle.
       dashboardLayout: (function () {
         const DEFAULT = [
-          { id: "search", visible: true },
           { id: "stats", visible: true },
           { id: "expiring", visible: true },
           { id: "appliances", visible: true },
@@ -1291,6 +1319,27 @@
       // so the header no longer carries Dashboard / Appliances / Settings /
       // Lock buttons on any screen size.
 
+      // Global search lives in the header. Typing jumps to the dashboard
+      // view (where the search short-circuit shows a flat result list).
+      const headerSearch = state.authenticated
+        ? h("input", {
+            type: "search",
+            inputmode: "search",
+            class: "header-search",
+            placeholder: "Search inventory…",
+            "aria-label": "Search inventory",
+            value: state.filters.q,
+            onInput: (e) => {
+              state.filters.q = e.target.value;
+              if (e.target.value.trim() && state.view !== "dashboard") {
+                state.view = "dashboard";
+                state.activeApplianceId = null;
+              }
+              render();
+            },
+          })
+        : null;
+
       // Theme toggle
       const currentTheme = document.documentElement.dataset.theme || "auto";
       const themeBtn = h("button", {
@@ -1345,12 +1394,21 @@
           })
         : null;
 
-      // flex:1 on the title eats the remaining space so the extras (density
-      // toggle, theme toggle, Install) sit flush against the right edge.
-      title.style.flex = "1";
+      // When the search is present it grows to fill the row and pushes the
+      // extras to the right. Without it (auth screens), the title grows.
+      if (!headerSearch) title.style.flex = "1";
       const header = h("header", { class: "app" }, [
-        sidebarBtn, title, ...extras,
+        sidebarBtn, title, headerSearch, ...extras,
       ].filter(Boolean));
+      // Preserve focus + caret while typing causes a re-render.
+      if (headerSearch && state.filters.q) {
+        queueMicrotask(() => {
+          const el = document.querySelector("header.app .header-search");
+          if (!el || document.activeElement === el) return;
+          el.focus();
+          try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {}
+        });
+      }
       return header;
     }
 
@@ -1567,37 +1625,6 @@
     // render() that returns a DOM node (or null to render nothing). Order
     // and visibility come from state.dashboardLayout.
     const DASHBOARD_MODULES = {
-      search: {
-        title: "Search bar",
-        render: () => {
-          if (state.items.length === 0 && state.appliances.length === 0) return null;
-          const searchInput = h("input", {
-            type: "search",
-            inputmode: "search",
-            placeholder: "Search items, groups, categories, notes…",
-            "aria-label": "Search inventory",
-            value: state.filters.q,
-            onInput: (e) => { state.filters.q = e.target.value; render(); },
-          });
-          const card = h("div", { class: "card" }, [
-            h("label", { style: "margin-top:0" }, [
-              h("span", { style: "display:flex;align-items:center;gap:0.5rem;justify-content:space-between" }, [
-                h("span", { text: "Search" }),
-                state.filters.q.trim()
-                  ? h("button", {
-                      type: "button", class: "ghost",
-                      onClick: () => { state.filters.q = ""; render(); },
-                      text: "Clear",
-                    })
-                  : null,
-              ]),
-              searchInput,
-            ]),
-          ]);
-          queueMicrotask(() => { if (state.filters.q) searchInput.focus(); });
-          return card;
-        },
-      },
       stats: {
         title: "Overview stats",
         render: () => {
@@ -1690,7 +1717,6 @@
               type: "button", class: "ghost",
               onClick: () => {
                 state.dashboardLayout = [
-                  { id: "search", visible: true },
                   { id: "stats", visible: true },
                   { id: "expiring", visible: true },
                   { id: "appliances", visible: true },
@@ -1714,16 +1740,10 @@
       ]);
       main.appendChild(toolbar);
 
-      // Search short-circuit: typing in the search box takes over the view
-      // and shows a flat result list instead of the normal dashboard. Only
-      // applies when NOT editing (so you can rearrange with a query present).
+      // Search short-circuit: when the header search has text, show a flat
+      // result list instead of the normal dashboard. Only applies when NOT
+      // editing (so you can rearrange with a query present).
       if (!editing && state.filters.q.trim()) {
-        // Still render the search module itself so the user can clear it.
-        const searchEntry = state.dashboardLayout.find(m => m.id === "search" && m.visible);
-        if (searchEntry) {
-          const node = DASHBOARD_MODULES.search.render();
-          if (node) main.appendChild(node);
-        }
         const matches = applyFilters(state.items);
         if (matches.length === 0) {
           main.appendChild(h("div", { class: "card empty" }, [
@@ -1744,13 +1764,6 @@
       // No-appliances empty state only when NOT editing (so the user can
       // still rearrange their layout on a fresh account).
       if (!editing && state.appliances.length === 0) {
-        // Still render search module above the empty state if visible.
-        for (const entry of state.dashboardLayout) {
-          if (entry.id !== "search" || !entry.visible) continue;
-          const node = DASHBOARD_MODULES.search.render();
-          if (node) main.appendChild(node);
-          break;
-        }
         if (canEditStructure()) {
           main.appendChild(emptyState(
             "No appliances yet",
