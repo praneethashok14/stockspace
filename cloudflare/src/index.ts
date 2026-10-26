@@ -902,12 +902,48 @@ app.patch("/api/appliances/:id/items/:item_id", async (c) => {
   }
   try {
     const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
+    // Moving to a different appliance? Resolve its owner now, before we open
+    // the mutation, so we can enforce same-owner moves (cross-owner moves
+    // across family members would need a two-blob swap we don't do yet).
+    let targetApplianceId: string | null = null;
+    if (
+      typeof body.appliance_id === "string" &&
+      body.appliance_id &&
+      body.appliance_id !== applianceId
+    ) {
+      const targetOwner = await resolveApplianceOwner(
+        c.env,
+        session.account_id,
+        body.appliance_id,
+      );
+      if (targetOwner.owner_id !== owner.owner_id) {
+        throw new HttpErr(
+          400,
+          "cross-member appliance moves are not supported yet",
+        );
+      }
+      targetApplianceId = body.appliance_id;
+    }
     const updated = await mutateInventory(c.env, owner.owner_id, (inv) => {
       const item = inv.items.find((x) => x.id === itemId && x.appliance_id === applianceId);
       if (!item) throw new HttpErr(404, `item ${itemId} not found`);
       if (body.name !== undefined) {
         if (!validItemName(body.name)) throw new HttpErr(400, "name must not be empty");
         item.name = (body.name as string).trim();
+      }
+      // Appliance move: validate target exists in this inventory, then
+      // reassign. Any existing group assignment must either live in the new
+      // appliance too (unlikely since groups are per-appliance) or be
+      // dropped — the frontend sends the new group_id in the same request.
+      const effectiveApplianceId = targetApplianceId ?? applianceId;
+      if (targetApplianceId) {
+        const target = inv.appliances.find((a) => a.id === targetApplianceId);
+        if (!target) {
+          throw new HttpErr(404, `appliance ${targetApplianceId} not found`);
+        }
+        item.appliance_id = targetApplianceId;
+        // Drop group if the caller didn't explicitly set a compatible one.
+        if (body.group_id === undefined) item.group_id = null;
       }
       if (body.group_id !== undefined) item.group_id = body.group_id || null;
       if (body.category !== undefined) item.category = blankToNull(body.category);
@@ -928,7 +964,7 @@ app.patch("/api/appliances/:id/items/:item_id", async (c) => {
       }
       if (item.group_id) {
         const g = inv.groups.find((x) => x.id === item.group_id);
-        if (!g || g.appliance_id !== applianceId) {
+        if (!g || g.appliance_id !== effectiveApplianceId) {
           throw new HttpErr(400, "group does not exist in this appliance");
         }
       }

@@ -3235,6 +3235,11 @@
                   };
                   if (existing.tracking === "individual") patch.unit = data.unit;
                   if (existing.tracking === "pack") patch.pack_label = data.pack_label;
+                  // Include appliance_id only if it actually changed; the
+                  // backend treats absence as "no move".
+                  if (data.appliance_id && data.appliance_id !== existing.appliance_id) {
+                    patch.appliance_id = data.appliance_id;
+                  }
                   savedItem = await api(
                     "/api/appliances/" + encodeURIComponent(existing.appliance_id) +
                     "/items/" + encodeURIComponent(existing.id),
@@ -3306,16 +3311,17 @@
             h("input", { type: "text", required: true, maxlength: "200", value: data.name,
               onInput: (e) => { data.name = e.target.value; } }),
           ]),
-          !isEdit ? h("label", {}, ["Appliance",
+          h("label", {}, ["Appliance",
             selectEl(state.appliances.map(a => [a.id, a.name]), data.appliance_id, (v) => {
               data.appliance_id = v;
-              // Rebuild group dropdown for the new appliance.
+              // Rebuild group dropdown for the new appliance; groups are
+              // per-appliance so the old selection no longer applies.
               const newSelect = selectEl(groupsForAppliance(), "", (nv) => { data.group_id = nv; });
               groupSelect.replaceWith(newSelect);
               groupSelect = newSelect;
               data.group_id = "";
             }),
-          ]) : null,
+          ]),
           h("label", {}, ["Group (optional)", groupSelect]),
           !isEdit ? h("label", {}, ["Tracking mode",
             selectEl([
