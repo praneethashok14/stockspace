@@ -469,6 +469,14 @@
       min-width: 40px;
       align-self: center;
     }
+    /* Install button: SVG icon inline with the label. */
+    header.app button.install-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.4rem 0.9rem;
+    }
+    header.app button.install-btn svg { width: 16px; height: 16px; }
     @media (max-width: 720px) {
       /* On narrow viewports the search gets its own row below the header's
          top row (wordmark, hamburger, extras), so it has room to breathe. */
@@ -1947,8 +1955,7 @@
           class: "ghost install-btn",
           title: "Install StockSpace",
           onClick: triggerInstall,
-          text: "⬇ Install",
-        }));
+        }, [icon("download"), h("span", { text: "Install" })]));
       }
 
       // Nav lives centered in the header on desktop. The in-view
@@ -2601,6 +2608,7 @@
         list:     '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
         cog:      '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4.9a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.5a7 7 0 0 0-2 1.2l-2.4-.9-2 3.5 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-.9a7 7 0 0 0 2 1.2L10 21h4l.5-2.5a7 7 0 0 0 2-1.2l2.4.9 2-3.5-2-1.5a7 7 0 0 0 .1-1.2Z"/>',
         lock:     '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/>',
+        download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/>',
       };
       const d = paths[name] || paths.box;
       const svg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
