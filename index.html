@@ -171,7 +171,16 @@
       border-color: var(--border-strong);
       color: var(--text);
     }
-    button:active:not(:disabled) { transform: translateY(1px); }
+    /* Liquid-glass press feedback: a brief scale-down on press and a
+       subtle lean toward the pointer while dragged, with a spring-back
+       on release (JS adds the lean; CSS owns the spring). */
+    button:active:not(:disabled) { transform: scale(0.94); }
+    button {
+      transform-origin: center;
+      /* Transition folded into the shared button transition above, with
+         the spring-feel cubic-bezier taking over for transform. */
+    }
+    .liquid-press { transition: transform 220ms cubic-bezier(.22, 1.4, .3, 1) !important; }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     button.primary {
       background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 15%), var(--accent));
@@ -1150,7 +1159,8 @@
       border-color: transparent;
       box-shadow: none;
     }
-    /* iOS-style floating pill that slides between the active icons. */
+    /* iOS 26/27 Liquid-glass pill that slides between icons and
+       deforms as the user drags along the rail. */
     .rail-indicator {
       position: absolute;
       left: 50%;
@@ -1159,23 +1169,36 @@
       height: 46px;
       border-radius: 999px;
       transform: translate(-50%, 0);
+      transform-origin: center;
       background: color-mix(in srgb, var(--accent) 24%, transparent);
       border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
       box-shadow: var(--glass-highlight-soft);
+      backdrop-filter: blur(14px) saturate(1.6);
+      -webkit-backdrop-filter: blur(14px) saturate(1.6);
       pointer-events: none;
       z-index: 0;
       opacity: 0;
       /* Spring-feel slide: slight overshoot at the end. */
       transition:
-        transform 460ms cubic-bezier(.22, 1.25, .35, 1),
+        transform 480ms cubic-bezier(.22, 1.3, .3, 1),
         height 460ms cubic-bezier(.22, 1.25, .35, 1),
+        width 460ms cubic-bezier(.22, 1.25, .35, 1),
         opacity 220ms ease,
         background 180ms ease,
         border-color 180ms ease;
+      will-change: transform, height, width;
     }
+    /* While the user is dragging, kill the transition so the pill tracks
+       the finger instantly; the `.rail.dragging` class flips it. */
+    .rail.dragging .rail-indicator { transition: none; }
     .rail button { position: relative; z-index: 1; }
+    /* Press feedback on rail buttons — the icon itself squishes a touch
+       while the indicator stretches behind it. */
+    .rail button:active:not(:disabled) { transform: scale(0.9); }
+    .rail button { transition: transform 180ms cubic-bezier(.22, 1.3, .3, 1), background 160ms ease, color 160ms ease; }
     @media (prefers-reduced-motion: reduce) {
       .rail-indicator { transition: opacity 120ms ease; }
+      .rail button:active:not(:disabled) { transform: none; }
     }
     .rail button.lock-btn:hover:not(:disabled) {
       color: var(--danger);
@@ -2388,7 +2411,147 @@
       $rail.className = "rail";
       $rail.setAttribute("aria-label", "Shortcuts");
       document.body.appendChild($rail);
+      attachRailLiquidDrag($rail);
     }
+
+    // iOS 26/27 "Liquid Glass" drag: pressing a rail button and dragging
+    // along the rail stretches the active-pill indicator toward the
+    // pointer, previews whichever button you're hovering, then settles
+    // on release — either back home or on a new view. Honors
+    // prefers-reduced-motion by skipping the stretch.
+    function attachRailLiquidDrag(rail) {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let drag = null;  // null when idle, object while dragging
+      let onMove = null, onUp = null;
+
+      // Block the default click; we route navigation ourselves on pointerup
+      // so a drag that ends over a different button navigates there and
+      // a drag that ends over the same button doesn't double-fire.
+      rail.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-view], button.lock-btn");
+        if (btn && drag !== false) { /* fall through */ }
+      }, true);
+
+      rail.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 && e.pointerType === "mouse") return;
+        const startBtn = e.target.closest("button[data-view], button.lock-btn");
+        if (!startBtn) return;
+        const indicator = rail.querySelector(".rail-indicator");
+        if (!indicator) return;
+        const railBox = rail.getBoundingClientRect();
+        const activeBtn = rail.querySelector('button[aria-current="true"]') || startBtn;
+        const anchorBox = activeBtn.getBoundingClientRect();
+        drag = {
+          startBtn,
+          pointerId: e.pointerId,
+          anchorY: anchorBox.top - railBox.top,
+          anchorH: anchorBox.height,
+          anchorW: anchorBox.width,
+          startY: e.clientY,
+          moved: false,
+        };
+        rail.classList.add("dragging");
+        e.preventDefault();  // stop the browser from synthesising a click
+
+        onMove = (ev) => {
+          if (!drag || ev.pointerId !== drag.pointerId) return;
+          const dy = ev.clientY - drag.startY;
+          if (Math.abs(dy) > 3) drag.moved = true;
+          if (reduceMotion) return;
+          const over = document.elementFromPoint(ev.clientX, ev.clientY);
+          const hoverBtn = over && over.closest
+            ? over.closest(".rail button[data-view], .rail button.lock-btn")
+            : null;
+          const rb = rail.getBoundingClientRect();
+          let targetY = drag.anchorY, targetH = drag.anchorH;
+          if (hoverBtn) {
+            const hb = hoverBtn.getBoundingClientRect();
+            targetY = hb.top - rb.top;
+            targetH = hb.height;
+          }
+          // Capsule stretch between the anchor button and the hovered one.
+          const top = Math.min(drag.anchorY, targetY);
+          const bot = Math.max(drag.anchorY + drag.anchorH, targetY + targetH);
+          indicator.style.transform = `translate(-50%, ${top}px)`;
+          indicator.style.height = `${bot - top}px`;
+          indicator.style.width = `${drag.anchorW}px`;
+          indicator.style.borderRadius = `${drag.anchorW / 2}px`;
+          indicator.style.opacity = "1";
+        };
+        onUp = (ev) => {
+          if (!drag || ev.pointerId !== drag.pointerId) return;
+          document.removeEventListener("pointermove", onMove);
+          document.removeEventListener("pointerup", onUp);
+          document.removeEventListener("pointercancel", onUp);
+          rail.classList.remove("dragging");
+          const indicator = rail.querySelector(".rail-indicator");
+          if (indicator) indicator.style.borderRadius = "";  // revert to CSS
+          const over = document.elementFromPoint(ev.clientX, ev.clientY);
+          const target = (over && over.closest(".rail button[data-view], .rail button.lock-btn"))
+            || drag.startBtn;
+          drag = null;
+          // Route via the button's own handler so navigation + state
+          // changes stay in one place. Programmatic click bypasses the
+          // click-suppression above.
+          if (target && target.isConnected) target.click();
+          requestAnimationFrame(positionRailIndicator);
+        };
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onUp);
+        document.addEventListener("pointercancel", onUp);
+      });
+    }
+
+    // iOS 26/27 Liquid-glass press on EVERY button: on pointerdown the
+    // button scales to ~0.94 (handled by CSS :active) and starts tracking
+    // the pointer; on pointermove within range, it leans toward the finger
+    // by a damped delta; on release it springs back via a brief
+    // transition flagged by the .liquid-press class. Skipped for the
+    // rail (handled by attachRailLiquidDrag) and when the user asks for
+    // reduced motion.
+    (function attachGlobalLiquidPress() {
+      if (typeof document === "undefined") return;
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reduceMotion) return;
+      const MAX = 6;        // max lean distance in px
+      const DAMP = 0.18;    // ratio of pointer delta applied
+      let drag = null, onMove = null, onUp = null;
+
+      document.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 && e.pointerType === "mouse") return;
+        const btn = e.target.closest && e.target.closest("button");
+        if (!btn) return;
+        // Rail handles its own liquid behaviour.
+        if (btn.closest(".rail")) return;
+        if (btn.disabled) return;
+        drag = { btn, sx: e.clientX, sy: e.clientY, pid: e.pointerId };
+        // Kill any inflight spring-back transition so the follow is live.
+        btn.style.transition = "transform 0ms linear";
+        onMove = (ev) => {
+          if (!drag || ev.pointerId !== drag.pid) return;
+          const dx = Math.max(-MAX, Math.min(MAX, (ev.clientX - drag.sx) * DAMP));
+          const dy = Math.max(-MAX, Math.min(MAX, (ev.clientY - drag.sy) * DAMP));
+          drag.btn.style.transform = `translate(${dx}px, ${dy}px) scale(0.94)`;
+        };
+        onUp = (ev) => {
+          if (!drag) return;
+          document.removeEventListener("pointermove", onMove);
+          document.removeEventListener("pointerup", onUp);
+          document.removeEventListener("pointercancel", onUp);
+          const b = drag.btn;
+          drag = null;
+          // Spring back: swap in the liquid-press transition briefly.
+          b.classList.add("liquid-press");
+          b.style.transition = "";
+          b.style.transform = "";
+          window.setTimeout(() => b.classList.remove("liquid-press"), 260);
+        };
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onUp);
+        document.addEventListener("pointercancel", onUp);
+      });
+    })();
+
     // Signature of what's currently inside the rail; only rebuild when
     // this changes, so the floating pill indicator can keep its own DOM
     // and animate between buttons instead of jumping on every render.
