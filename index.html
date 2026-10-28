@@ -1035,11 +1035,16 @@
       align-items: center;
       gap: 0.4rem;
       margin-left: auto;
+      flex-shrink: 0;
     }
-    header.app .header-right .header-search {
-      max-width: 220px;
-      flex: 0 1 220px;
-      margin: 0;
+    @media (min-width: 760px) {
+      /* On wide screens cap the search so the extras cluster still sits
+         flush right instead of being pushed off-screen by a flex-grown
+         search. */
+      header.app .header-search {
+        flex: 0 1 320px;
+        max-width: 320px;
+      }
     }
     /* Header no longer hosts the primary nav (rail owns it on desktop,
        .primary-nav-wrap above each view owns it on narrow). */
@@ -1979,11 +1984,13 @@
       // Nav is handled by the left rail on desktop and the in-view
       // .primary-nav-wrap on mobile — the header stays clean, carrying
       // only wordmark + search + extras (no nav pills here).
-      const rightSide = h("div", { class: "header-right" },
-        [headerSearch, ...extras].filter(Boolean));
+      // Search sits as its own flex child of header.app so it can wrap
+      // to a new row at narrow widths; extras cluster together on the
+      // right via .header-right.
+      const rightSide = h("div", { class: "header-right" }, extras.filter(Boolean));
       if (!headerSearch) title.style.flex = "1";
       const header = h("header", { class: "app" }, [
-        title, rightSide,
+        title, headerSearch, rightSide,
       ].filter(Boolean));
       // Preserve focus + caret while typing causes a re-render.
       if (headerSearch && state.filters.q) {
