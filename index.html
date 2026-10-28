@@ -1107,7 +1107,9 @@
       .primary-nav button .nav-label { display: none; }
     }
 
-    /* ---- Left sidebar: full-height chrome column (desktop only) ---- */
+    /* ---- Left sidebar: full-height chrome column, unified with top bar
+       into one L-shaped surface. No border between the two so the
+       translucent chrome reads as a single piece. ---- */
     .rail {
       position: fixed;
       top: 0;
@@ -1123,12 +1125,11 @@
         0.5rem
         max(0.75rem, env(safe-area-inset-bottom))
         max(0.5rem, env(safe-area-inset-left));
-      /* Full chrome column — same translucent tint and border as the top
-         bar so the two surfaces read as one piece of chrome. */
       background: color-mix(in srgb, var(--chrome) 42%, transparent);
-      border-right: 1px solid var(--chrome-border);
+      /* No border-right: the header picks up right where the rail ends,
+         same tint, so they look like one continuous chrome surface. */
       color: var(--chrome-text);
-      box-shadow: 10px 0 32px -24px rgba(0, 0, 0, 0.6);
+      box-shadow: var(--glass-highlight), 10px 0 32px -24px rgba(0, 0, 0, 0.6);
       backdrop-filter: blur(28px) saturate(1.5);
       -webkit-backdrop-filter: blur(28px) saturate(1.5);
       z-index: 40;
@@ -4361,29 +4362,40 @@
 
     // ---------- Appearance: background image / presets / custom colours ----------
 
+    // Each preset carries its background gradient AND a matching chrome
+    // (top-bar + rail) tint per scheme, so the chrome actually belongs to
+    // the theme instead of staying stuck on the default navy.
     const BG_PRESETS = [
-      { id: "ambient",   label: "Ambient (default)", bgLight: null, bgDark: null },
+      { id: "ambient",   label: "Ambient (default)",
+        bgLight: null, bgDark: null,
+        chromeLight: null, chromeDark: null },
       { id: "sunset",    label: "Sunset glow",
         bgLight: "radial-gradient(at 20% 10%, #ffd9b0 0%, transparent 55%),radial-gradient(at 80% 90%, #ffb199 0%, transparent 55%),linear-gradient(180deg,#fff2e4 0%,#f3dcd1 100%)",
-        bgDark:  "radial-gradient(at 20% 10%, #c05a1a 0%, transparent 55%),radial-gradient(at 80% 90%, #3a1744 0%, transparent 55%),linear-gradient(180deg,#120a14 0%,#07040a 100%)" },
+        bgDark:  "radial-gradient(at 20% 10%, #c05a1a 0%, transparent 55%),radial-gradient(at 80% 90%, #3a1744 0%, transparent 55%),linear-gradient(180deg,#120a14 0%,#07040a 100%)",
+        chromeLight: "#f5c4a9", chromeDark: "#3a1f17" },
       { id: "ocean",     label: "Deep ocean",
         bgLight: "radial-gradient(at 20% 10%, #bfe0ff 0%, transparent 55%),radial-gradient(at 80% 90%, #b4f0d7 0%, transparent 55%),linear-gradient(180deg,#eef6ff 0%,#dde9f5 100%)",
-        bgDark:  "radial-gradient(at 20% 10%, #1b4f8b 0%, transparent 55%),radial-gradient(at 80% 90%, #103a56 0%, transparent 55%),linear-gradient(180deg,#06111f 0%,#030a14 100%)" },
+        bgDark:  "radial-gradient(at 20% 10%, #1b4f8b 0%, transparent 55%),radial-gradient(at 80% 90%, #103a56 0%, transparent 55%),linear-gradient(180deg,#06111f 0%,#030a14 100%)",
+        chromeLight: "#c7dfea", chromeDark: "#0a1f2e" },
       { id: "forest",    label: "Forest",
         bgLight: "radial-gradient(at 20% 10%, #d7ecc8 0%, transparent 55%),radial-gradient(at 80% 90%, #c5ddc6 0%, transparent 55%),linear-gradient(180deg,#eef5e8 0%,#dde7d2 100%)",
-        bgDark:  "radial-gradient(at 20% 10%, #15402a 0%, transparent 55%),radial-gradient(at 80% 90%, #1b2d1d 0%, transparent 55%),linear-gradient(180deg,#0a120d 0%,#040806 100%)" },
+        bgDark:  "radial-gradient(at 20% 10%, #15402a 0%, transparent 55%),radial-gradient(at 80% 90%, #1b2d1d 0%, transparent 55%),linear-gradient(180deg,#0a120d 0%,#040806 100%)",
+        chromeLight: "#c8d9c2", chromeDark: "#13261d" },
       { id: "mono",      label: "Minimal mono",
         bgLight: "linear-gradient(180deg,#f6f7fb 0%,#e8ebf2 100%)",
-        bgDark:  "linear-gradient(180deg,#111319 0%,#060709 100%)" },
+        bgDark:  "linear-gradient(180deg,#111319 0%,#060709 100%)",
+        chromeLight: "#e8ebf2", chromeDark: "#111317" },
     ];
 
     function renderAppearanceSection() {
       const t = state.customTheme;
       const scheme = effectiveColorScheme();
 
-      // Preset tiles
+      // Preset tiles. A tile is "active" when its bg matches the stored
+      // theme in the current scheme (chromes are a side-effect; bg is
+      // what the tile shows).
       const activeBg = scheme === "dark" ? t.bgDark : t.bgLight;
-      const activePreset = BG_PRESETS.find(p => p.bgLight === activeBg || p.bgDark === activeBg) || BG_PRESETS[0];
+      const activePreset = BG_PRESETS.find(p => (scheme === "dark" ? p.bgDark : p.bgLight) === activeBg) || BG_PRESETS[0];
       const presetGrid = h("div", {
         style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:0.6rem",
       });
@@ -4403,6 +4415,10 @@
           onClick: () => {
             state.customTheme.bgLight = preset.bgLight;
             state.customTheme.bgDark = preset.bgDark;
+            // Preset also drives the top-bar + rail (chrome) tint so the
+            // whole chrome belongs to the theme, not just the canvas.
+            state.customTheme.chromeLight = preset.chromeLight;
+            state.customTheme.chromeDark = preset.chromeDark;
             // Clearing image lets the gradient show through.
             state.customTheme.bgImageLight = null;
             state.customTheme.bgImageDark = null;
