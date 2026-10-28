@@ -1107,31 +1107,42 @@
       .primary-nav button .nav-label { display: none; }
     }
 
-    /* ---- Thin left rail (reel-matched, desktop only) ---- */
+    /* ---- Left sidebar: full-height chrome column (desktop only) ---- */
     .rail {
       position: fixed;
-      top: 50%;
-      left: max(0.75rem, env(safe-area-inset-left));
-      transform: translateY(-50%);
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 76px;
       display: none;
       flex-direction: column;
-      gap: 0.35rem;
-      padding: 0.45rem;
-      border-radius: 999px;
-      /* Match the top-bar tint so the two chrome surfaces read as one
-         design — same translucent --chrome color, same border. */
+      align-items: center;
+      gap: 0.4rem;
+      padding:
+        max(0.75rem, env(safe-area-inset-top))
+        0.5rem
+        max(0.75rem, env(safe-area-inset-bottom))
+        max(0.5rem, env(safe-area-inset-left));
+      /* Full chrome column — same translucent tint and border as the top
+         bar so the two surfaces read as one piece of chrome. */
       background: color-mix(in srgb, var(--chrome) 42%, transparent);
-      border: 1px solid var(--chrome-border);
+      border-right: 1px solid var(--chrome-border);
       color: var(--chrome-text);
-      box-shadow: var(--glass-highlight), var(--shadow);
+      box-shadow: 10px 0 32px -24px rgba(0, 0, 0, 0.6);
       backdrop-filter: blur(28px) saturate(1.5);
       -webkit-backdrop-filter: blur(28px) saturate(1.5);
       z-index: 40;
     }
     @media (min-width: 760px) {
       .rail { display: flex; }
-      body { padding-left: 86px; }
+      body { padding-left: 76px; }
+      /* Keep the sticky header's safe-area padding — but the rail now
+         covers the left edge, so the header's left padding only needs
+         to clear the rail, not the inset. */
+      header.app { padding-left: 1rem; }
     }
+    /* Push the Lock button down to the bottom; nav items hug the top. */
+    .rail .rail-spacer { flex: 1; }
     .rail button {
       width: 46px;
       height: 46px;
@@ -2399,6 +2410,8 @@
           },
         }, [icon(iconName)]));
       }
+      // Push the Lock button to the bottom of the full-height column.
+      $rail.appendChild(h("div", { class: "rail-spacer", "aria-hidden": "true" }));
       $rail.appendChild(h("div", { class: "rail-sep", "aria-hidden": "true" }));
       $rail.appendChild(h("button", {
         type: "button",
