@@ -880,14 +880,6 @@
       box-shadow: var(--glass-highlight-soft);
     }
     .dash-stat .stat-icon svg { width: 20px; height: 20px; }
-    .dash-stat .stat-spark {
-      height: 32px;
-      width: 100%;
-      display: block;
-      opacity: 0.85;
-    }
-    .dash-stat .stat-spark path { stroke: var(--accent-tint, var(--accent)); fill: none; stroke-width: 2; }
-    .dash-stat .stat-spark .spark-fill { fill: color-mix(in srgb, var(--accent-tint, var(--accent)) 24%, transparent); stroke: none; }
     .dash-stat .big {
       font-size: 2.4rem;
       font-weight: 700;
@@ -2705,53 +2697,6 @@
       }
     }
 
-    // Build a smoothed sparkline SVG from a short list of numbers.
-    // Deterministic — same input, same path — so the same metric always
-    // draws the same shape rather than jiggling on re-render.
-    function sparklineSvg(values) {
-      const n = values.length;
-      if (n === 0) return null;
-      const max = Math.max(1, ...values);
-      const min = Math.min(0, ...values);
-      const w = 100, h = 32;
-      const step = n > 1 ? w / (n - 1) : w;
-      const pts = values.map((v, i) => {
-        const y = h - 2 - ((v - min) / (max - min || 1)) * (h - 6);
-        return [i * step, y];
-      });
-      const linePath = pts.map(([x, y], i) => (i === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1)).join(" ");
-      const fillPath = linePath + " L " + w + " " + h + " L 0 " + h + " Z";
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("class", "stat-spark");
-      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
-      svg.setAttribute("preserveAspectRatio", "none");
-      svg.setAttribute("aria-hidden", "true");
-      const fillEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      fillEl.setAttribute("class", "spark-fill");
-      fillEl.setAttribute("d", fillPath);
-      svg.appendChild(fillEl);
-      const lineEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      lineEl.setAttribute("d", linePath);
-      svg.appendChild(lineEl);
-      return svg;
-    }
-
-    // Deterministic pseudo-random series seeded from the metric label,
-    // so each tile has its own stable sparkline shape without any real
-    // time-series data. Keeps the visual language from the reel without
-    // misleading the user about trends they don't actually have.
-    function seededSeries(seed, count, lift) {
-      let s = 0;
-      for (let i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) | 0;
-      const out = [];
-      for (let i = 0; i < count; i++) {
-        s = (s * 1103515245 + 12345) | 0;
-        const r = ((s >>> 16) & 0x7fff) / 0x7fff;
-        out.push(0.3 + r * 0.7 + (lift ? i * 0.04 : 0));
-      }
-      return out;
-    }
-
     // Palette for stat tile icon chips. Keyed by `tone` on the opts.
     const STAT_TONES = {
       amber:  "#ff8a3d",
@@ -2769,14 +2714,12 @@
       }
       const { label, value, kind = "", iconName = "box", hint = "", onClick = null, tone = "amber" } = opts;
       const tint = STAT_TONES[tone] || STAT_TONES.amber;
-      const spark = sparklineSvg(seededSeries(label, 12, true));
       const children = [
         h("div", { class: "stat-head" }, [
           h("div", { class: "stat-label", text: label }),
           h("span", { class: "stat-icon" }, [icon(iconName)]),
         ]),
         h("div", { class: "big", text: String(value) }),
-        spark,
         hint ? h("div", { class: "stat-hint", text: hint }) : null,
       ].filter(Boolean);
       const style = "--accent-tint:" + tint + ";";
