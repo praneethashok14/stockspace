@@ -1143,10 +1143,39 @@
       background: var(--chrome-hover);
     }
     .rail button[aria-current="true"] {
-      background: color-mix(in srgb, var(--accent) 24%, transparent);
+      /* Active-state look lives on .rail-indicator so it can slide
+         between buttons smoothly; the button itself just colors the icon. */
       color: var(--accent);
-      border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+      background: transparent;
+      border-color: transparent;
+      box-shadow: none;
+    }
+    /* iOS-style floating pill that slides between the active icons. */
+    .rail-indicator {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      width: 46px;
+      height: 46px;
+      border-radius: 999px;
+      transform: translate(-50%, 0);
+      background: color-mix(in srgb, var(--accent) 24%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
       box-shadow: var(--glass-highlight-soft);
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0;
+      /* Spring-feel slide: slight overshoot at the end. */
+      transition:
+        transform 460ms cubic-bezier(.22, 1.25, .35, 1),
+        height 460ms cubic-bezier(.22, 1.25, .35, 1),
+        opacity 220ms ease,
+        background 180ms ease,
+        border-color 180ms ease;
+    }
+    .rail button { position: relative; z-index: 1; }
+    @media (prefers-reduced-motion: reduce) {
+      .rail-indicator { transition: opacity 120ms ease; }
     }
     .rail button.lock-btn:hover:not(:disabled) {
       color: var(--danger);
@@ -2360,19 +2389,40 @@
       $rail.setAttribute("aria-label", "Shortcuts");
       document.body.appendChild($rail);
     }
+    // Signature of what's currently inside the rail; only rebuild when
+    // this changes, so the floating pill indicator can keep its own DOM
+    // and animate between buttons instead of jumping on every render.
+    let railSignature = "";
     function updateRail() {
       // Even on the lock / signup screen we keep the rail as a chrome
       // column so the frame of the app stays consistent. It just has no
       // interactive items until the user signs in.
       ensureRail();
+      const entries = state.authenticated ? navEntries() : [];
+      const nextSig = (state.authenticated ? "auth:" : "lock:") + entries.map(e => e[0]).join(",");
+      if (nextSig !== railSignature) {
+        rebuildRail(entries);
+        railSignature = nextSig;
+      }
+      // Flip aria-current across the existing buttons and re-position the
+      // indicator. The CSS transition on the indicator does the slide.
+      for (const btn of $rail.querySelectorAll("button[data-view]")) {
+        const v = btn.getAttribute("data-view");
+        btn.setAttribute("aria-current", state.view === v ? "true" : "false");
+      }
+      requestAnimationFrame(positionRailIndicator);
+    }
+
+    function rebuildRail(entries) {
       $rail.textContent = "";
-      if (!state.authenticated) return;
-      for (const [view, label, iconName] of navEntries()) {
+      // Floating active-pill — slides between buttons on page change.
+      $rail.appendChild(h("span", { class: "rail-indicator", "aria-hidden": "true" }));
+      for (const [view, label, iconName] of entries) {
         $rail.appendChild(h("button", {
           type: "button",
           title: label,
           "aria-label": label,
-          "aria-current": state.view === view ? "true" : "false",
+          "data-view": view,
           onClick: () => {
             if (view === state.view) return;
             state.view = view;
@@ -2382,16 +2432,45 @@
           },
         }, [icon(iconName)]));
       }
-      // Push the Lock button to the bottom of the full-height column.
-      $rail.appendChild(h("div", { class: "rail-spacer", "aria-hidden": "true" }));
-      $rail.appendChild(h("div", { class: "rail-sep", "aria-hidden": "true" }));
-      $rail.appendChild(h("button", {
-        type: "button",
-        class: "lock-btn",
-        title: "Lock",
-        "aria-label": "Lock",
-        onClick: () => lock(),
-      }, [icon("lock")]));
+      if (entries.length) {
+        $rail.appendChild(h("div", { class: "rail-spacer", "aria-hidden": "true" }));
+        $rail.appendChild(h("div", { class: "rail-sep", "aria-hidden": "true" }));
+        $rail.appendChild(h("button", {
+          type: "button",
+          class: "lock-btn",
+          title: "Lock",
+          "aria-label": "Lock",
+          onClick: () => lock(),
+        }, [icon("lock")]));
+      }
+    }
+
+    // Measure the currently-active nav button and park the floating
+    // pill behind it. The CSS transition on transform/height does the
+    // actual iOS-style slide between pages. On the very first position
+    // we snap instantly (no slide from off-screen).
+    function positionRailIndicator() {
+      if (!$rail) return;
+      const indicator = $rail.querySelector(".rail-indicator");
+      const active = $rail.querySelector('button[aria-current="true"]');
+      if (!indicator) return;
+      if (!active) { indicator.style.opacity = "0"; return; }
+      const railBox = $rail.getBoundingClientRect();
+      const btnBox = active.getBoundingClientRect();
+      const y = btnBox.top - railBox.top;
+      const firstPlacement = indicator.style.opacity !== "1";
+      if (firstPlacement) indicator.style.transition = "none";
+      indicator.style.transform = `translate(-50%, ${y}px)`;
+      indicator.style.height = `${btnBox.height}px`;
+      indicator.style.width = `${btnBox.width}px`;
+      indicator.style.opacity = "1";
+      if (firstPlacement) {
+        void indicator.offsetHeight;  // flush
+        requestAnimationFrame(() => { indicator.style.transition = ""; });
+      }
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", () => requestAnimationFrame(positionRailIndicator));
     }
 
     function renderDashboard() {
