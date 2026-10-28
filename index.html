@@ -2396,13 +2396,12 @@
       document.body.appendChild($rail);
     }
     function updateRail() {
-      if (!state.authenticated) {
-        if ($rail) $rail.remove();
-        $rail = null;
-        return;
-      }
+      // Even on the lock / signup screen we keep the rail as a chrome
+      // column so the frame of the app stays consistent. It just has no
+      // interactive items until the user signs in.
       ensureRail();
       $rail.textContent = "";
+      if (!state.authenticated) return;
       for (const [view, label, iconName] of navEntries()) {
         $rail.appendChild(h("button", {
           type: "button",
