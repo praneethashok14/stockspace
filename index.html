@@ -1038,13 +1038,23 @@
       flex-shrink: 0;
     }
     @media (min-width: 760px) {
-      /* On wide screens cap the search so the extras cluster still sits
-         flush right instead of being pushed off-screen by a flex-grown
-         search. */
-      header.app .header-search {
+      /* 3-column grid so the search stays visually centred no matter
+         how wide the wordmark gets, while extras pin to the right. */
+      header.app {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        column-gap: 1rem;
+        align-items: center;
+      }
+      header.app > h1 { justify-self: start; }
+      header.app > .header-search {
+        justify-self: center;
         flex: 0 1 320px;
         max-width: 320px;
+        width: 320px;
+        margin: 0;
       }
+      header.app > .header-right { justify-self: end; margin-left: 0; }
     }
     /* Header no longer hosts the primary nav (rail owns it on desktop,
        .primary-nav-wrap above each view owns it on narrow). */
