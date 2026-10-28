@@ -9,7 +9,7 @@
 // Spec references: README/10-PWA-INSTALLATION.md and
 // README/11-PIN-ACCESS-AND-SECURITY.md.
 
-const CACHE_VERSION = "stockspace-shell-v19";
+const CACHE_VERSION = "stockspace-shell-v20";
 const SHELL = [
   "/",
   "/index.html",

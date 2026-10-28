@@ -2502,36 +2502,45 @@
       });
     }
 
-    // iOS 26/27 Liquid-glass press on EVERY button: on pointerdown the
-    // button scales to ~0.94 (handled by CSS :active) and starts tracking
-    // the pointer; on pointermove within range, it leans toward the finger
-    // by a damped delta; on release it springs back via a brief
-    // transition flagged by the .liquid-press class. Skipped for the
-    // rail (handled by attachRailLiquidDrag) and when the user asks for
-    // reduced motion.
+    // iOS 26/27 Liquid-glass press on EVERY button (rail buttons too).
+    // Press alone scales to ~0.94; drag then stretches the button along
+    // the drag axis and compresses the perpendicular one, with the
+    // translation following the pointer (damped). The result is a
+    // liquid-blob deformation that leans into the drag. Release springs
+    // back via a brief transition. Skipped under reduced motion.
     (function attachGlobalLiquidPress() {
       if (typeof document === "undefined") return;
       const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       if (reduceMotion) return;
-      const MAX = 6;        // max lean distance in px
-      const DAMP = 0.18;    // ratio of pointer delta applied
+      const STRETCH = 0.18;   // max added scale along the drag axis
+      const SQUASH = 0.08;    // max taken from the perpendicular axis
+      const LEAN = 10;        // max px of translation at full drag
+      const RANGE = 70;       // px of pointer travel that saturates the effect
       let drag = null, onMove = null, onUp = null;
 
       document.addEventListener("pointerdown", (e) => {
         if (e.button !== 0 && e.pointerType === "mouse") return;
         const btn = e.target.closest && e.target.closest("button");
         if (!btn) return;
-        // Rail handles its own liquid behaviour.
-        if (btn.closest(".rail")) return;
         if (btn.disabled) return;
         drag = { btn, sx: e.clientX, sy: e.clientY, pid: e.pointerId };
         // Kill any inflight spring-back transition so the follow is live.
         btn.style.transition = "transform 0ms linear";
         onMove = (ev) => {
           if (!drag || ev.pointerId !== drag.pid) return;
-          const dx = Math.max(-MAX, Math.min(MAX, (ev.clientX - drag.sx) * DAMP));
-          const dy = Math.max(-MAX, Math.min(MAX, (ev.clientY - drag.sy) * DAMP));
-          drag.btn.style.transform = `translate(${dx}px, ${dy}px) scale(0.94)`;
+          const dx = ev.clientX - drag.sx;
+          const dy = ev.clientY - drag.sy;
+          // Normalised magnitudes along each axis (−1..1).
+          const nx = Math.max(-1, Math.min(1, dx / RANGE));
+          const ny = Math.max(-1, Math.min(1, dy / RANGE));
+          // Non-uniform scale — stretch along the dominant drag axis,
+          // squash the other. Base scale 0.94 (the press shrink).
+          const base = 0.94;
+          const sX = base + Math.abs(nx) * STRETCH - Math.abs(ny) * SQUASH;
+          const sY = base + Math.abs(ny) * STRETCH - Math.abs(nx) * SQUASH;
+          const tx = nx * LEAN;
+          const ty = ny * LEAN;
+          drag.btn.style.transform = `translate(${tx}px, ${ty}px) scale(${sX}, ${sY})`;
         };
         onUp = (ev) => {
           if (!drag) return;
@@ -2540,11 +2549,11 @@
           document.removeEventListener("pointercancel", onUp);
           const b = drag.btn;
           drag = null;
-          // Spring back: swap in the liquid-press transition briefly.
+          // Spring back via a brief liquid-press transition, then clear.
           b.classList.add("liquid-press");
           b.style.transition = "";
           b.style.transform = "";
-          window.setTimeout(() => b.classList.remove("liquid-press"), 260);
+          window.setTimeout(() => b.classList.remove("liquid-press"), 320);
         };
         document.addEventListener("pointermove", onMove);
         document.addEventListener("pointerup", onUp);
