@@ -20,56 +20,102 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap">
   <style>
     :root {
-      --bg: #f6f7fb;
-      --surface: #ffffff;
-      --surface-2: #eef1f8;
+      color-scheme: light dark;
+
+      /* Ambient background — a layered gradient the whole app sits on.
+         Users can swap it in Settings; see --bg-image. */
+      --bg-ambient:
+        radial-gradient(at 18% 10%, oklch(92% 0.09 55 / 0.70), transparent 55%),
+        radial-gradient(at 85% 88%, oklch(90% 0.08 265 / 0.60), transparent 50%),
+        linear-gradient(180deg, #f4f2ee 0%, #eceef5 100%);
+
+      --surface: rgba(255, 255, 255, 0.62);
+      --surface-2: rgba(255, 255, 255, 0.42);
       --text: #11182c;
-      --muted: #5a647a;
-      --border: #d9dee9;
-      --accent: #0b5fff;
+      --muted: rgba(17, 24, 44, 0.62);
+      --border: rgba(255, 255, 255, 0.6);
+      --border-strong: rgba(17, 24, 44, 0.14);
+      --accent: #ff6a1a;
       --accent-text: #ffffff;
       --danger: #c0303a;
-      --danger-bg: #fdecee;
+      --danger-bg: color-mix(in srgb, #c0303a 14%, transparent);
       --warning: #a85e00;
-      --warning-bg: #fff3dc;
+      --warning-bg: color-mix(in srgb, #ff9b2b 18%, transparent);
       --success: #0e7c3a;
-      --success-bg: #e7f6ec;
-      --focus: #0b5fff;
-      --radius: 10px;
-      --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+      --success-bg: color-mix(in srgb, #27c470 18%, transparent);
+      --focus: var(--accent);
+
+      --radius-sm: 12px;
+      --radius: 18px;
+      --radius-lg: 24px;
+
+      /* Glass FX */
+      --glass-blur: 22px;
+      --glass-sat: 1.4;
+      --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      --glass-highlight-soft: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      --shadow: 0 10px 36px -16px rgba(16, 24, 40, 0.32), 0 2px 6px -2px rgba(16, 24, 40, 0.16);
+      --shadow-lg: 0 24px 60px -24px rgba(16, 24, 40, 0.42), 0 6px 18px -8px rgba(16, 24, 40, 0.22);
     }
     @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0b1220;
-        --surface: #141c33;
-        --surface-2: #1b2544;
-        --text: #e7ecf8;
-        --muted: #8a94af;
-        --border: #2a3457;
-        --accent: #4d8bff;
-        --accent-text: #0b1220;
-        --danger: #ff8089;
-        --danger-bg: #3b1d22;
-        --warning: #ffbe55;
-        --warning-bg: #3a2a0a;
-        --success: #6cd38f;
-        --success-bg: #0f2a1b;
-        --focus: #4d8bff;
+      :root:not([data-theme="light"]) {
+        --bg-ambient:
+          radial-gradient(at 18% 12%, oklch(55% 0.15 55 / 0.42), transparent 55%),
+          radial-gradient(at 85% 88%, oklch(45% 0.17 285 / 0.42), transparent 50%),
+          linear-gradient(180deg, #0a0d18 0%, #060810 100%);
+        --surface: rgba(255, 255, 255, 0.06);
+        --surface-2: rgba(255, 255, 255, 0.035);
+        --text: #e8ecf7;
+        --muted: rgba(232, 236, 247, 0.62);
+        --border: rgba(255, 255, 255, 0.12);
+        --border-strong: rgba(255, 255, 255, 0.22);
+        --danger: #ff8089; --danger-bg: color-mix(in srgb, #ff8089 18%, transparent);
+        --warning: #ffbe55; --warning-bg: color-mix(in srgb, #ffbe55 16%, transparent);
+        --success: #6cd38f; --success-bg: color-mix(in srgb, #6cd38f 16%, transparent);
+        --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+        --glass-highlight-soft: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        --shadow: 0 10px 40px -16px rgba(0, 0, 0, 0.6), 0 4px 12px -4px rgba(0, 0, 0, 0.45);
+        --shadow-lg: 0 24px 60px -24px rgba(0, 0, 0, 0.75), 0 8px 20px -8px rgba(0, 0, 0, 0.55);
       }
     }
     html[data-theme="light"] {
       color-scheme: light;
-      --bg: #f6f7fb; --surface: #fff; --surface-2: #eef1f8; --text: #11182c; --muted: #5a647a;
-      --border: #d9dee9; --accent: #0b5fff; --accent-text: #fff;
-      --danger: #c0303a; --danger-bg: #fdecee; --warning: #a85e00; --warning-bg: #fff3dc;
-      --success: #0e7c3a; --success-bg: #e7f6ec; --focus: #0b5fff;
+      --bg-ambient:
+        radial-gradient(at 18% 10%, oklch(92% 0.09 55 / 0.70), transparent 55%),
+        radial-gradient(at 85% 88%, oklch(90% 0.08 265 / 0.60), transparent 50%),
+        linear-gradient(180deg, #f4f2ee 0%, #eceef5 100%);
+      --surface: rgba(255, 255, 255, 0.62);
+      --surface-2: rgba(255, 255, 255, 0.42);
+      --text: #11182c;
+      --muted: rgba(17, 24, 44, 0.62);
+      --border: rgba(255, 255, 255, 0.6);
+      --border-strong: rgba(17, 24, 44, 0.14);
+      --danger: #c0303a; --danger-bg: color-mix(in srgb, #c0303a 14%, transparent);
+      --warning: #a85e00; --warning-bg: color-mix(in srgb, #ff9b2b 18%, transparent);
+      --success: #0e7c3a; --success-bg: color-mix(in srgb, #27c470 18%, transparent);
+      --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      --glass-highlight-soft: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      --shadow: 0 10px 36px -16px rgba(16, 24, 40, 0.32), 0 2px 6px -2px rgba(16, 24, 40, 0.16);
     }
     html[data-theme="dark"] {
       color-scheme: dark;
-      --bg: #0b1220; --surface: #141c33; --surface-2: #1b2544; --text: #e7ecf8; --muted: #8a94af;
-      --border: #2a3457; --accent: #4d8bff; --accent-text: #0b1220;
-      --danger: #ff8089; --danger-bg: #3b1d22; --warning: #ffbe55; --warning-bg: #3a2a0a;
-      --success: #6cd38f; --success-bg: #0f2a1b; --focus: #4d8bff;
+      --bg-ambient:
+        radial-gradient(at 18% 12%, oklch(55% 0.15 55 / 0.42), transparent 55%),
+        radial-gradient(at 85% 88%, oklch(45% 0.17 285 / 0.42), transparent 50%),
+        linear-gradient(180deg, #0a0d18 0%, #060810 100%);
+      --surface: rgba(255, 255, 255, 0.06);
+      --surface-2: rgba(255, 255, 255, 0.035);
+      --text: #e8ecf7;
+      --muted: rgba(232, 236, 247, 0.62);
+      --border: rgba(255, 255, 255, 0.12);
+      --border-strong: rgba(255, 255, 255, 0.22);
+      --danger: #ff8089; --danger-bg: color-mix(in srgb, #ff8089 18%, transparent);
+      --warning: #ffbe55; --warning-bg: color-mix(in srgb, #ffbe55 16%, transparent);
+      --success: #6cd38f; --success-bg: color-mix(in srgb, #6cd38f 16%, transparent);
+      --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+      --glass-highlight-soft: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      --shadow: 0 10px 40px -16px rgba(0, 0, 0, 0.6), 0 4px 12px -4px rgba(0, 0, 0, 0.45);
+      --shadow-lg: 0 24px 60px -24px rgba(0, 0, 0, 0.75), 0 8px 20px -8px rgba(0, 0, 0, 0.55);
     }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
@@ -79,36 +125,68 @@
       font-family: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       font-size: 16px;
       color: var(--text);
-      background: var(--bg);
+      /* Optional user image sits above the ambient gradient; if --bg-image is
+         unset the gradient alone shows through. */
+      background:
+        var(--bg-image, none) center/cover no-repeat fixed,
+        var(--bg-ambient) fixed;
       -webkit-font-smoothing: antialiased;
+      min-height: 100dvh;
     }
     @media (prefers-reduced-motion: reduce) {
       * { transition: none !important; animation: none !important; }
     }
     a { color: var(--accent); }
     :focus-visible {
-      outline: 3px solid var(--focus);
+      outline: 2px solid var(--focus);
       outline-offset: 2px;
-      border-radius: 6px;
+      border-radius: 10px;
     }
+
+    /* Buttons = glass pills by default. Primary = filled accent. Ghost = flat. */
     button {
       font: inherit;
       cursor: pointer;
-      border-radius: var(--radius);
+      border-radius: 999px;
       border: 1px solid var(--border);
       background: var(--surface);
       color: var(--text);
-      padding: 0.5rem 0.9rem;
+      padding: 0.55rem 1rem;
       min-height: 44px;
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      box-shadow: var(--glass-highlight-soft);
+      transition: transform 120ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
     }
-    button:hover:not(:disabled) { background: var(--surface-2); }
+    button:hover:not(:disabled) {
+      background: var(--surface-2);
+      border-color: var(--border-strong);
+    }
+    button:active:not(:disabled) { transform: translateY(1px); }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
-    button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-    button.primary:hover:not(:disabled) { filter: brightness(1.05); background: var(--accent); }
-    button.danger { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
-    button.ghost { background: transparent; }
+    button.primary {
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 15%), var(--accent));
+      color: var(--accent-text);
+      border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+      box-shadow: var(--glass-highlight-soft),
+                  0 8px 22px -10px color-mix(in srgb, var(--accent) 70%, transparent);
+    }
+    button.primary:hover:not(:disabled) { filter: brightness(1.06); }
+    button.danger {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+    }
+    button.ghost {
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      box-shadow: none;
+      border-color: transparent;
+    }
+    button.ghost:hover:not(:disabled) { background: var(--surface-2); }
     button.icon {
       min-width: 44px;
       min-height: 44px;
@@ -116,6 +194,7 @@
       font-size: 1.2rem;
       line-height: 1;
     }
+
     input, select, textarea {
       font: inherit;
       /* 16px minimum prevents iOS Safari auto-zoom on focus */
@@ -123,12 +202,22 @@
       color: var(--text);
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 0.5rem 0.7rem;
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.85rem;
       min-height: 44px;
       width: 100%;
       -webkit-appearance: none;
       appearance: none;
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      box-shadow: var(--glass-highlight-soft);
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: color-mix(in srgb, var(--accent) 70%, var(--border-strong));
+      box-shadow: var(--glass-highlight-soft),
+                  0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
     }
     input[type="radio"], input[type="checkbox"] {
       width: auto;
@@ -142,6 +231,9 @@
       appearance: auto;
       accent-color: var(--accent);
       flex-shrink: 0;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      box-shadow: none;
     }
     textarea { min-height: 80px; resize: vertical; }
     label { display: block; margin-top: 0.75rem; font-weight: 600; }
@@ -153,30 +245,66 @@
       display: inline-flex;
       align-items: center;
       gap: 0.3rem;
-      padding: 0.15rem 0.5rem;
+      padding: 0.2rem 0.65rem;
       border-radius: 999px;
       font-size: 0.8rem;
       border: 1px solid var(--border);
       background: var(--surface-2);
-      color: var(--muted);
+      color: var(--text);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      box-shadow: var(--glass-highlight-soft);
     }
-    .pill.danger { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
-    .pill.warning { background: var(--warning-bg); color: var(--warning); border-color: var(--warning); }
-    .pill.success { background: var(--success-bg); color: var(--success); border-color: var(--success); }
-    .pill.accent { background: var(--surface); color: var(--accent); border-color: var(--accent); }
+    .pill.danger { background: var(--danger-bg); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, transparent); }
+    .pill.warning { background: var(--warning-bg); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 50%, transparent); }
+    .pill.success { background: var(--success-bg); color: var(--success); border-color: color-mix(in srgb, var(--success) 50%, transparent); }
+    .pill.accent { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 1rem;
-      box-shadow: var(--shadow);
+      padding: 1.1rem;
+      box-shadow: var(--glass-highlight), var(--shadow);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      transition: transform 220ms ease, box-shadow 220ms ease;
     }
+
+    /* Safari <18 and some Android browsers don't honor backdrop-filter.
+       Fall back to solid tints that still read as cards. */
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      :root {
+        --surface: #ffffff;
+        --surface-2: #eef1f8;
+        --border: #d9dee9;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --surface: #151b2d;
+          --surface-2: #1b2545;
+          --border: #2a3457;
+        }
+      }
+      html[data-theme="dark"] {
+        --surface: #151b2d;
+        --surface-2: #1b2545;
+        --border: #2a3457;
+      }
+      .card, button, input, select, textarea, .pill, header.app, .sidebar, .dialog, .toast, .inv-group, .dash-module-edit {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+    }
+
     html, body { overflow-x: hidden; }
+
+    /* --chrome drives the top bar + sidebar tint. User can override its hex in
+       Settings; applyCustomTheme() picks a text contrast and the glass surface
+       always renders translucently over the ambient background. */
     :root {
-      --chrome: oklch(28.2% 0.091 267.935);
+      --chrome: #1e2847;
       --chrome-text: #e8ecf7;
-      /* Translucent overlays derived from --chrome-text so hover / border /
-         divider shades stay visible whether the chrome bg is dark or light. */
       --chrome-hover: color-mix(in srgb, var(--chrome-text) 14%, transparent);
       --chrome-border: color-mix(in srgb, var(--chrome-text) 22%, transparent);
       --chrome-strong: color-mix(in srgb, var(--chrome-text) 30%, transparent);
@@ -197,8 +325,13 @@
         max(1rem, env(safe-area-inset-right))
         0.75rem
         max(1rem, env(safe-area-inset-left));
-      border-bottom: 1px solid var(--chrome);
-      background: var(--chrome);
+      /* Glass bar: user-picked chrome hex is used as a translucent tint over
+         the ambient background, with a bright top edge for depth. */
+      background: color-mix(in srgb, var(--chrome) 42%, transparent);
+      backdrop-filter: blur(26px) saturate(1.5);
+      -webkit-backdrop-filter: blur(26px) saturate(1.5);
+      border-bottom: 1px solid var(--chrome-border);
+      box-shadow: var(--glass-highlight), 0 10px 32px -24px rgba(0, 0, 0, 0.6);
       color: var(--chrome-text);
       position: sticky;
       top: 0;
@@ -244,17 +377,23 @@
       header.app h1 .wordmark-img { height: 28px; max-width: 40vw; }
     }
     header.app button {
-      background: transparent;
+      background: var(--chrome-hover);
       color: var(--chrome-text);
       border-color: var(--chrome-border);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      box-shadow: var(--glass-highlight-soft);
     }
     header.app button:hover:not(:disabled) {
-      background: var(--chrome-hover);
+      background: var(--chrome-strong);
+      border-color: var(--chrome-strong);
     }
     header.app button.primary {
-      background: var(--chrome-hover);
-      color: var(--chrome-text);
-      border-color: var(--chrome-strong);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 15%), var(--accent));
+      color: var(--accent-text);
+      border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+      box-shadow: var(--glass-highlight-soft),
+                  0 8px 22px -10px color-mix(in srgb, var(--accent) 70%, transparent);
     }
     header.app .pill {
       background: var(--chrome-hover);
@@ -269,19 +408,23 @@
       max-width: 420px;
       min-height: 36px;
       margin: 0 auto;
-      padding: 0.4rem 0.8rem;
+      padding: 0.4rem 0.9rem;
       font-size: 0.95rem;
       background: var(--chrome-hover);
       color: var(--chrome-text);
       border: 1px solid var(--chrome-border);
       border-radius: 999px;
       width: auto;
+      box-shadow: var(--glass-highlight-soft);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
     }
     header.app .header-search::placeholder { color: var(--chrome-muted); }
     header.app .header-search:focus {
       outline: none;
-      border-color: var(--chrome-strong);
-      background: var(--chrome-strong);
+      border-color: color-mix(in srgb, var(--accent) 70%, var(--chrome-strong));
+      box-shadow: var(--glass-highlight-soft),
+                  0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
     }
     /* Pill-shape every header button EXCEPT the sidebar hamburger. The
        wordmark button lives inside the h1, not as a direct child of
@@ -341,7 +484,9 @@
       bottom: 0;
       width: 280px;
       max-width: 85vw;
-      background: var(--chrome);
+      background: color-mix(in srgb, var(--chrome) 48%, transparent);
+      backdrop-filter: blur(30px) saturate(1.5);
+      -webkit-backdrop-filter: blur(30px) saturate(1.5);
       color: var(--chrome-text);
       padding:
         max(0.75rem, env(safe-area-inset-top))
@@ -351,8 +496,9 @@
       overflow-y: auto;
       z-index: 30;
       transform: translateX(-100%);
-      transition: transform 0.2s ease;
-      box-shadow: 2px 0 12px rgba(0, 0, 0, 0.35);
+      transition: transform 0.22s cubic-bezier(.2,.8,.2,1);
+      border-right: 1px solid var(--chrome-border);
+      box-shadow: var(--glass-highlight), 10px 0 40px -16px rgba(0, 0, 0, 0.6);
       display: flex;
       flex-direction: column;
       gap: 0.4rem;
@@ -374,11 +520,15 @@
       text-align: left;
       background: transparent;
       color: var(--chrome-text);
-      border: 1px solid var(--chrome-border);
-      padding: 0.55rem 0.7rem;
-      border-radius: 8px;
+      border: 1px solid transparent;
+      padding: 0.6rem 0.8rem;
+      border-radius: 12px;
       min-height: 0;
       cursor: pointer;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      box-shadow: none;
+      transition: background 160ms ease, border-color 160ms ease;
     }
     /* Scoped to .sidebar (not .sb-item) so .sb-close and any future sidebar
        icons also get sized correctly. */
@@ -409,6 +559,7 @@
       background: var(--chrome-hover);
       border-color: var(--chrome-strong);
       color: var(--chrome-text);
+      box-shadow: var(--glass-highlight-soft);
     }
     .sidebar .sb-item .sb-meta {
       display: block;
@@ -417,18 +568,22 @@
       margin-top: 0.1rem;
     }
     .sidebar .sb-add {
-      background: var(--accent);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 15%), var(--accent));
       color: var(--accent-text);
-      border: 0;
-      border-radius: 8px;
-      padding: 0.55rem 0.7rem;
+      border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+      border-radius: 999px;
+      padding: 0.6rem 0.9rem;
       font-weight: 600;
       cursor: pointer;
+      box-shadow: var(--glass-highlight-soft),
+                  0 8px 22px -10px color-mix(in srgb, var(--accent) 70%, transparent);
     }
     .sidebar-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.5);
+      background: rgba(5, 7, 14, 0.45);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       z-index: 25;
       opacity: 0;
       pointer-events: none;
@@ -469,18 +624,22 @@
     }
     .toast { pointer-events: auto; }
     .toast {
-      padding: 0.75rem 1rem;
+      padding: 0.8rem 1.1rem;
       border-radius: var(--radius);
       background: var(--surface);
       border: 1px solid var(--border);
-      box-shadow: var(--shadow);
+      box-shadow: var(--glass-highlight), var(--shadow);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     }
-    .toast.error { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
-    .toast.success { border-color: var(--success); color: var(--success); background: var(--success-bg); }
+    .toast.error { border-color: color-mix(in srgb, var(--danger) 55%, transparent); color: var(--danger); background: var(--danger-bg); }
+    .toast.success { border-color: color-mix(in srgb, var(--success) 55%, transparent); color: var(--success); background: var(--success-bg); }
     .dialog-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(10, 15, 30, 0.55);
+      background: rgba(5, 7, 14, 0.55);
+      backdrop-filter: blur(14px) saturate(1.2);
+      -webkit-backdrop-filter: blur(14px) saturate(1.2);
       display: grid;
       place-items: center;
       padding: 1rem;
@@ -489,8 +648,8 @@
     .dialog {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.25rem;
+      border-radius: var(--radius-lg);
+      padding: 1.3rem;
       max-width: 520px;
       width: 100%;
       /* Cap the dialog to the viewport and let its own body scroll, so tall
@@ -499,7 +658,9 @@
       max-height: calc(100dvh - 2rem);
       overflow-y: auto;
       overscroll-behavior: contain;
-      box-shadow: var(--shadow);
+      box-shadow: var(--glass-highlight), var(--shadow-lg);
+      backdrop-filter: blur(28px) saturate(1.5);
+      -webkit-backdrop-filter: blur(28px) saturate(1.5);
     }
     .dialog h2 { margin-top: 0; }
     .center-screen {
@@ -518,15 +679,20 @@
       border-radius: var(--radius);
       background: var(--surface);
       overflow: hidden;
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      box-shadow: var(--glass-highlight), var(--shadow);
     }
     .inv-group summary {
       list-style: none;
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      padding: 0.75rem 1rem;
+      padding: 0.85rem 1.1rem;
       background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
       cursor: pointer;
+      font-weight: 600;
     }
     .inv-group summary::-webkit-details-marker { display: none; }
     .inv-group summary::before {
@@ -540,10 +706,11 @@
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 0.5rem;
-      padding: 0.75rem 1rem;
-      border-top: 1px solid var(--border);
+      padding: 0.85rem 1.1rem;
+      border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
       align-items: center;
     }
+    .inv-item:first-of-type { border-top: 0; }
     .inv-right {
       display: grid;
       gap: 0.5rem;
@@ -593,20 +760,24 @@
       align-items: center;
       justify-content: center;
       gap: 0.3rem;
-      min-height: 90px;
-      background: transparent;
-      border: 2px dashed var(--border);
+      min-height: 100px;
+      background: color-mix(in srgb, var(--surface) 55%, transparent);
+      border: 2px dashed var(--border-strong);
+      border-radius: var(--radius);
       color: var(--muted);
       cursor: pointer;
       font-weight: 500;
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      box-shadow: none;
     }
     .dash-add-card:hover:not(:disabled) {
       border-color: var(--accent);
       color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 6%, transparent);
+      background: color-mix(in srgb, var(--accent) 8%, var(--surface));
     }
     .dash-add-card .dash-add-plus {
-      font-size: 1.6rem;
+      font-size: 1.8rem;
       line-height: 1;
     }
     /* Dashboard module wrapper: adds vertical rhythm between modules and
@@ -614,10 +785,12 @@
     .dash-module { margin-bottom: 1rem; }
     .dash-module:last-child { margin-bottom: 0; }
     .dash-module-edit {
-      border: 1px dashed var(--border);
+      border: 1px dashed var(--border-strong);
       border-radius: var(--radius);
       padding: 0.6rem;
       background: var(--surface);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     }
     .dash-module-edit.hidden-mod { opacity: 0.55; }
     .dash-module-edit.dragging { opacity: 0.4; }
@@ -651,9 +824,12 @@
       width: auto; min-height: 0; margin: 0; cursor: pointer;
     }
     .dash-stat .big {
-      font-size: 1.8rem;
+      font-size: 2rem;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+      margin-top: 0.1rem;
     }
     /* When a stat card is clickable it renders as a <button>; strip the
        default button chrome and add a subtle hover affordance. */
@@ -663,10 +839,12 @@
       font: inherit;
       color: inherit;
       min-height: 0;
+      border-radius: var(--radius);
     }
     .dash-stat-link:hover:not(:disabled) {
-      background: var(--surface-2);
-      border-color: color-mix(in srgb, var(--text) 25%, var(--border));
+      transform: translateY(-2px);
+      border-color: var(--border-strong);
+      box-shadow: var(--glass-highlight), var(--shadow-lg);
     }
     .dash-stat.danger {
       background: var(--danger-bg);
@@ -920,18 +1098,27 @@
       // defaults in CSS. All stored as hex strings (what <input type=color>
       // produces); contrast text colour is derived automatically.
       customTheme: (function () {
+        const empty = {
+          chromeLight: null, chromeDark: null,
+          bgLight: null, bgDark: null,
+          bgImageLight: null, bgImageDark: null,
+          accent: null,
+        };
         try {
           const raw = localStorage.getItem("stockspace_custom_theme");
-          if (!raw) return { chromeLight: null, chromeDark: null, bgLight: null, bgDark: null };
+          if (!raw) return empty;
           const p = JSON.parse(raw) || {};
           return {
             chromeLight: typeof p.chromeLight === "string" ? p.chromeLight : null,
             chromeDark: typeof p.chromeDark === "string" ? p.chromeDark : null,
             bgLight: typeof p.bgLight === "string" ? p.bgLight : null,
             bgDark: typeof p.bgDark === "string" ? p.bgDark : null,
+            bgImageLight: typeof p.bgImageLight === "string" ? p.bgImageLight : null,
+            bgImageDark: typeof p.bgImageDark === "string" ? p.bgImageDark : null,
+            accent: typeof p.accent === "string" ? p.accent : null,
           };
         } catch (_) {
-          return { chromeLight: null, chromeDark: null, bgLight: null, bgDark: null };
+          return empty;
         }
       })(),
     };
@@ -1538,6 +1725,7 @@
       const t = state.customTheme;
       const chrome = scheme === "dark" ? t.chromeDark : t.chromeLight;
       const bg = scheme === "dark" ? t.bgDark : t.bgLight;
+      const bgImage = scheme === "dark" ? t.bgImageDark : t.bgImageLight;
       const root = document.documentElement;
       if (chrome) {
         root.style.setProperty("--chrome", chrome);
@@ -1547,10 +1735,24 @@
         root.style.removeProperty("--chrome");
         root.style.removeProperty("--chrome-text");
       }
+      // Solid-color background override; replaces the ambient gradient when set.
       if (bg) {
-        root.style.setProperty("--bg", bg);
+        root.style.setProperty("--bg-ambient", bg);
       } else {
-        root.style.removeProperty("--bg");
+        root.style.removeProperty("--bg-ambient");
+      }
+      // Image background (data URL or http URL). Blurred glass surfaces will
+      // pick up its color — the whole app sits on top of this.
+      if (bgImage) {
+        root.style.setProperty("--bg-image", "url(" + JSON.stringify(bgImage) + ")");
+      } else {
+        root.style.removeProperty("--bg-image");
+      }
+      // Optional user accent color override.
+      if (t.accent) {
+        root.style.setProperty("--accent", t.accent);
+      } else {
+        root.style.removeProperty("--accent");
       }
       // Sync the browser URL-bar / status-bar color to the resolved chrome.
       const meta = document.querySelector('meta[name="theme-color"]');
@@ -3575,6 +3777,8 @@
 
       main.appendChild(renderTagsSection());
 
+      main.appendChild(renderAppearanceSection());
+
       main.appendChild(renderThemeSection());
 
       main.appendChild(h("div", { class: "card stack" }, [
@@ -3716,13 +3920,151 @@
           h("button", {
             class: "ghost",
             onClick: () => {
-              state.customTheme = { chromeLight: null, chromeDark: null, bgLight: null, bgDark: null };
+              state.customTheme = {
+                chromeLight: null, chromeDark: null,
+                bgLight: null, bgDark: null,
+                bgImageLight: null, bgImageDark: null,
+                accent: null,
+              };
               saveCustomTheme();
               applyCustomTheme();
               render();
             },
             text: "Reset all to defaults",
           }),
+        ]),
+      ]);
+    }
+
+    // ---------- Appearance: background image / presets ----------
+
+    const BG_PRESETS = [
+      { id: "ambient",   label: "Ambient (default)", bgLight: null, bgDark: null },
+      { id: "sunset",    label: "Sunset glow",
+        bgLight: "radial-gradient(at 20% 10%, #ffd9b0 0%, transparent 55%),radial-gradient(at 80% 90%, #ffb199 0%, transparent 55%),linear-gradient(180deg,#fff2e4 0%,#f3dcd1 100%)",
+        bgDark:  "radial-gradient(at 20% 10%, #c05a1a 0%, transparent 55%),radial-gradient(at 80% 90%, #3a1744 0%, transparent 55%),linear-gradient(180deg,#120a14 0%,#07040a 100%)" },
+      { id: "ocean",     label: "Deep ocean",
+        bgLight: "radial-gradient(at 20% 10%, #bfe0ff 0%, transparent 55%),radial-gradient(at 80% 90%, #b4f0d7 0%, transparent 55%),linear-gradient(180deg,#eef6ff 0%,#dde9f5 100%)",
+        bgDark:  "radial-gradient(at 20% 10%, #1b4f8b 0%, transparent 55%),radial-gradient(at 80% 90%, #103a56 0%, transparent 55%),linear-gradient(180deg,#06111f 0%,#030a14 100%)" },
+      { id: "forest",    label: "Forest",
+        bgLight: "radial-gradient(at 20% 10%, #d7ecc8 0%, transparent 55%),radial-gradient(at 80% 90%, #c5ddc6 0%, transparent 55%),linear-gradient(180deg,#eef5e8 0%,#dde7d2 100%)",
+        bgDark:  "radial-gradient(at 20% 10%, #15402a 0%, transparent 55%),radial-gradient(at 80% 90%, #1b2d1d 0%, transparent 55%),linear-gradient(180deg,#0a120d 0%,#040806 100%)" },
+      { id: "mono",      label: "Minimal mono",
+        bgLight: "linear-gradient(180deg,#f6f7fb 0%,#e8ebf2 100%)",
+        bgDark:  "linear-gradient(180deg,#111319 0%,#060709 100%)" },
+    ];
+
+    function renderAppearanceSection() {
+      const t = state.customTheme;
+      const scheme = effectiveColorScheme();
+
+      // Preset tiles
+      const activeBg = scheme === "dark" ? t.bgDark : t.bgLight;
+      const activePreset = BG_PRESETS.find(p => p.bgLight === activeBg || p.bgDark === activeBg) || BG_PRESETS[0];
+      const presetGrid = h("div", {
+        style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:0.6rem",
+      });
+      for (const preset of BG_PRESETS) {
+        const sample = preset.id === "ambient"
+          ? (scheme === "dark"
+              ? "radial-gradient(at 18% 12%, rgba(255,160,80,0.42), transparent 55%),radial-gradient(at 85% 88%, rgba(140,100,255,0.42), transparent 50%),linear-gradient(180deg,#0a0d18,#060810)"
+              : "radial-gradient(at 18% 10%, rgba(255,210,160,0.7), transparent 55%),radial-gradient(at 85% 88%, rgba(190,210,255,0.6), transparent 50%),linear-gradient(180deg,#f4f2ee,#eceef5)")
+          : (scheme === "dark" ? preset.bgDark : preset.bgLight);
+        const isActive = preset.id === activePreset.id;
+        const tile = h("button", {
+          type: "button",
+          style: "min-height:90px;padding:0;border-radius:var(--radius);overflow:hidden;position:relative;cursor:pointer;"
+               + "border:2px solid " + (isActive ? "var(--accent)" : "var(--border)") + ";"
+               + "background:" + sample + ";"
+               + "box-shadow:var(--glass-highlight-soft),var(--shadow)",
+          onClick: () => {
+            state.customTheme.bgLight = preset.bgLight;
+            state.customTheme.bgDark = preset.bgDark;
+            // Clearing image lets the gradient show through.
+            state.customTheme.bgImageLight = null;
+            state.customTheme.bgImageDark = null;
+            saveCustomTheme();
+            applyCustomTheme();
+            render();
+          },
+          "aria-pressed": String(isActive),
+        }, [
+          h("span", {
+            style: "position:absolute;left:0;right:0;bottom:0;padding:0.4rem 0.6rem;"
+                 + "font-size:0.78rem;font-weight:600;color:#fff;"
+                 + "background:linear-gradient(180deg,transparent,rgba(0,0,0,0.55));"
+                 + "text-shadow:0 1px 2px rgba(0,0,0,0.5);text-align:left",
+            text: preset.label,
+          }),
+        ]);
+        presetGrid.appendChild(tile);
+      }
+
+      // Image upload picker
+      const bgImage = scheme === "dark" ? t.bgImageDark : t.bgImageLight;
+      const imgPreview = bgImage
+        ? h("div", {
+            style: "margin-top:0.5rem;height:110px;border-radius:var(--radius);"
+                 + "background:url(" + JSON.stringify(bgImage) + ") center/cover;"
+                 + "border:1px solid var(--border);box-shadow:var(--glass-highlight-soft)",
+          })
+        : h("p", { class: "muted", style: "margin:0.4rem 0 0;font-size:0.85rem",
+                   text: "No image set." });
+
+      const fileInput = h("input", {
+        type: "file", accept: "image/*",
+        style: "position:absolute;width:1px;height:1px;opacity:0;pointer-events:none",
+        onChange: (e) => {
+          const f = e.target.files && e.target.files[0];
+          e.target.value = "";
+          if (!f) return;
+          if (!/^image\//.test(f.type)) { toast("Pick an image file.", "error"); return; }
+          if (f.size > 2 * 1024 * 1024) {
+            toast("Image larger than 2 MB — pick something smaller so storage stays snappy.", "error");
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result;
+            if (scheme === "dark") state.customTheme.bgImageDark = dataUrl;
+            else state.customTheme.bgImageLight = dataUrl;
+            saveCustomTheme();
+            applyCustomTheme();
+            render();
+          };
+          reader.readAsDataURL(f);
+        },
+      });
+
+      return h("div", { class: "card stack" }, [
+        h("h3", { style: "margin-top:0", text: "Appearance" }),
+        h("p", { class: "muted", text: "The whole app sits on a background that shows through the frosted-glass surfaces. Pick a preset or upload your own." }),
+        presetGrid,
+        h("div", { style: "border-top:1px solid var(--border);padding-top:0.75rem" }, [
+          h("h4", { style: "margin:0.2rem 0 0.4rem", text: "Custom image" }),
+          h("p", { class: "muted", style: "margin:0 0 0.5rem;font-size:0.85rem",
+                   text: "Applies to the current colour scheme (" + scheme + "). Stored locally in your browser." }),
+          h("div", { class: "row", style: "gap:0.4rem" }, [
+            h("button", {
+              type: "button",
+              onClick: () => fileInput.click(),
+              text: bgImage ? "Replace image" : "Upload image",
+            }),
+            bgImage ? h("button", {
+              type: "button",
+              class: "ghost",
+              onClick: () => {
+                if (scheme === "dark") state.customTheme.bgImageDark = null;
+                else state.customTheme.bgImageLight = null;
+                saveCustomTheme();
+                applyCustomTheme();
+                render();
+              },
+              text: "Remove image",
+            }) : null,
+            fileInput,
+          ].filter(Boolean)),
+          imgPreview,
         ]),
       ]);
     }
