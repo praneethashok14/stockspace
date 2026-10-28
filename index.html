@@ -749,9 +749,12 @@
     }
     .dash-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 0.75rem;
-      margin-bottom: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.9rem;
+      margin-bottom: 1.25rem;
+    }
+    @media (max-width: 540px) {
+      .dash-grid { grid-template-columns: 1fr 1fr; gap: 0.6rem; }
     }
     /* Dashed "+ Add new" tile at the end of the appliance-summaries grid. */
     .dash-add-card {
@@ -823,13 +826,52 @@
     .dash-toggle input[type="checkbox"] {
       width: auto; min-height: 0; margin: 0; cursor: pointer;
     }
+    /* ---- Stat tile ---- */
+    .dash-stat {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 0.6rem;
+      min-height: 150px;
+      padding: 1.2rem 1.2rem 1.1rem;
+      overflow: hidden;
+      position: relative;
+    }
+    .dash-stat .stat-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .dash-stat .stat-label {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .dash-stat .stat-icon {
+      width: 36px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    .dash-stat .stat-icon svg { width: 20px; height: 20px; }
     .dash-stat .big {
-      font-size: 2rem;
+      font-size: 2.4rem;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
-      letter-spacing: -0.01em;
-      line-height: 1.1;
-      margin-top: 0.1rem;
+      letter-spacing: -0.02em;
+      line-height: 1.05;
+      margin: 0;
+    }
+    .dash-stat .stat-hint {
+      font-size: 0.82rem;
+      color: var(--muted);
     }
     /* When a stat card is clickable it renders as a <button>; strip the
        default button chrome and add a subtle hover affordance. */
@@ -842,24 +884,212 @@
       border-radius: var(--radius);
     }
     .dash-stat-link:hover:not(:disabled) {
-      transform: translateY(-2px);
+      transform: translateY(-3px);
       border-color: var(--border-strong);
       box-shadow: var(--glass-highlight), var(--shadow-lg);
     }
     .dash-stat.danger {
-      background: var(--danger-bg);
-      border-color: var(--danger);
+      background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+      border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+    }
+    .dash-stat.danger .stat-icon {
+      background: color-mix(in srgb, var(--danger) 22%, transparent);
       color: var(--danger);
     }
-    .dash-stat.danger .muted,
     .dash-stat.danger .big { color: var(--danger); }
     .dash-stat.warning {
-      background: var(--warning-bg);
-      border-color: var(--warning);
+      background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+      border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+    }
+    .dash-stat.warning .stat-icon {
+      background: color-mix(in srgb, var(--warning) 22%, transparent);
       color: var(--warning);
     }
-    .dash-stat.warning .muted,
     .dash-stat.warning .big { color: var(--warning); }
+    .dash-stat.success .stat-icon {
+      background: color-mix(in srgb, var(--success) 22%, transparent);
+      color: var(--success);
+    }
+
+    /* ---- Hero band ---- */
+    .dash-hero {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1rem;
+      align-items: end;
+      padding: 1.4rem 1.5rem;
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--glass-highlight), var(--shadow-lg);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      position: relative;
+      overflow: hidden;
+    }
+    .dash-hero::after {
+      /* Warm accent glow in the top-right corner. */
+      content: "";
+      position: absolute;
+      top: -40%; right: -10%;
+      width: 60%; height: 160%;
+      background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 32%, transparent), transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .dash-hero > * { position: relative; z-index: 1; }
+    .dash-hero .hero-greeting {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin: 0 0 0.3rem;
+    }
+    .dash-hero .hero-name {
+      font-size: clamp(1.6rem, 3.5vw, 2.3rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      margin: 0;
+    }
+    .dash-hero .hero-sub {
+      margin-top: 0.5rem;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .dash-hero .hero-meter {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.4rem;
+      padding: 0.6rem 1rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+      color: var(--text);
+      font-weight: 600;
+      box-shadow: var(--glass-highlight-soft);
+    }
+    .dash-hero .hero-meter b {
+      font-size: 1.3rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+    }
+
+    /* ---- Appliance tile ---- */
+    .appliance-tile {
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+      padding: 1.1rem;
+      text-align: left;
+      min-height: 170px;
+      cursor: pointer;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--glass-highlight), var(--shadow);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      transition: transform 180ms ease, box-shadow 220ms ease;
+      color: var(--text);
+    }
+    .appliance-tile:hover:not(:disabled) {
+      transform: translateY(-3px);
+      box-shadow: var(--glass-highlight), var(--shadow-lg);
+    }
+    .appliance-tile .tile-head {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+    }
+    .appliance-tile .tile-icon {
+      width: 44px; height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--accent) 20%, transparent);
+      color: var(--accent);
+      flex-shrink: 0;
+      box-shadow: var(--glass-highlight-soft);
+    }
+    .appliance-tile .tile-icon svg { width: 24px; height: 24px; }
+    .appliance-tile .tile-name {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      line-height: 1.15;
+    }
+    .appliance-tile .tile-sub {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 0.1rem;
+    }
+    .appliance-tile .tile-count {
+      display: flex;
+      align-items: baseline;
+      gap: 0.35rem;
+      margin-top: auto;
+    }
+    .appliance-tile .tile-count b {
+      font-size: 1.7rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+    .appliance-tile .tile-count span {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .appliance-tile .tile-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+    }
+
+    /* ---- Primary nav pills in the main area (desktop) ---- */
+    .primary-nav {
+      display: none;
+      gap: 0.3rem;
+      padding: 0.3rem;
+      border-radius: 999px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--glass-highlight-soft);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      margin: 0 auto 1.2rem;
+      width: fit-content;
+    }
+    @media (min-width: 720px) {
+      .primary-nav { display: inline-flex; }
+    }
+    .primary-nav button {
+      min-height: 36px;
+      padding: 0.35rem 0.95rem;
+      border-radius: 999px;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.9rem;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .primary-nav button svg { width: 16px; height: 16px; }
+    .primary-nav button:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+    .primary-nav button[aria-current="true"] {
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+      color: var(--accent);
+    }
     .empty {
       text-align: center;
       padding: 2rem 1rem;
@@ -904,7 +1134,14 @@
       main.app { padding: 0.75rem; padding-left: max(0.75rem, env(safe-area-inset-left));
                  padding-right: max(0.75rem, env(safe-area-inset-right));
                  padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
-      .card { padding: 0.75rem; }
+      .card { padding: 0.9rem; }
+      .dash-stat { min-height: 120px; padding: 0.9rem; gap: 0.4rem; }
+      .dash-stat .big { font-size: 1.7rem; }
+      .dash-hero { padding: 1.1rem 1.1rem; grid-template-columns: 1fr; gap: 0.6rem; align-items: start; }
+      .dash-hero .hero-meter { align-self: start; }
+      .appliance-tile { min-height: 150px; padding: 0.9rem; }
+      .appliance-tile .tile-icon { width: 38px; height: 38px; }
+      .appliance-tile .tile-count b { font-size: 1.4rem; }
       .inv-item { grid-template-columns: 1fr; padding: 0.75rem; }
       .inv-right { justify-items: start; width: 100%; }
       .inv-actions { justify-content: flex-start; }
@@ -1071,6 +1308,7 @@
       // show up automatically on upgrade). Edit mode exposes drag + toggle.
       dashboardLayout: (function () {
         const DEFAULT = [
+          { id: "hero", visible: true },
           { id: "stats", visible: true },
           { id: "expiring", visible: true },
           { id: "appliances", visible: true },
@@ -1088,7 +1326,17 @@
             cleaned.push({ id: row.id, visible: row.visible !== false });
             seen.add(row.id);
           }
-          for (const m of DEFAULT) if (!seen.has(m.id)) cleaned.push({ ...m });
+          // Insert any new default modules at their default index — so a new
+          // module like "hero" slots in at the top of a migrated layout
+          // instead of appearing orphaned at the end.
+          for (let i = 0; i < DEFAULT.length; i++) {
+            const m = DEFAULT[i];
+            if (!seen.has(m.id)) {
+              const insertAt = Math.min(i, cleaned.length);
+              cleaned.splice(insertAt, 0, { ...m });
+              seen.add(m.id);
+            }
+          }
           return cleaned;
         } catch (_) { return DEFAULT; }
       })(),
@@ -1923,20 +2171,58 @@
     // render() that returns a DOM node (or null to render nothing). Order
     // and visibility come from state.dashboardLayout.
     const DASHBOARD_MODULES = {
+      hero: {
+        title: "Welcome banner",
+        render: () => {
+          const hour = new Date().getHours();
+          const greeting = hour < 5 ? "Still up" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+          const name = state.accountName || "there";
+          const totals = computeTotals();
+          const totalItems = state.items.length;
+          const sub = state.appliances.length === 0
+            ? "Add your first appliance to start tracking."
+            : (totalItems === 0
+              ? "No items yet — add one to see it here."
+              : `${state.appliances.length} ${pluralize("appliance", state.appliances.length)} · ${totals.expired + totals.soon} needing attention`);
+          return h("section", { class: "dash-hero", "aria-label": "Overview" }, [
+            h("div", {}, [
+              h("div", { class: "hero-greeting", text: greeting + "," }),
+              h("h1", { class: "hero-name", text: name }),
+              h("div", { class: "hero-sub", text: sub }),
+            ]),
+            h("div", { class: "hero-meter", title: "Items in your inventory" }, [
+              h("b", { text: String(totalItems) }),
+              h("span", { text: pluralize("item", totalItems) }),
+            ]),
+          ]);
+        },
+      },
       stats: {
         title: "Overview stats",
         render: () => {
           const totals = computeTotals();
           return h("section", { class: "dash-grid", "aria-label": "Overview" }, [
-            statCard("Appliances", state.appliances.length),
-            statCard("Groups", state.groups.length),
-            statCard("Items", state.items.length, "", () => {
-              state.view = "inventory";
-              state.activeApplianceId = null;
-              render();
+            statCard({
+              label: "Appliances", value: state.appliances.length, iconName: "fridge",
             }),
-            statCard("Expired", totals.expired, "danger"),
-            statCard("Expiring in ≤ 7 days", totals.soon, "warning"),
+            statCard({
+              label: "Groups", value: state.groups.length, iconName: "layers",
+            }),
+            statCard({
+              label: "Items", value: state.items.length, iconName: "box",
+              hint: "Tap to view all",
+              onClick: () => {
+                state.view = "inventory";
+                state.activeApplianceId = null;
+                render();
+              },
+            }),
+            statCard({
+              label: "Expired", value: totals.expired, kind: "danger", iconName: "warn",
+            }),
+            statCard({
+              label: "Expiring ≤ 7 d", value: totals.soon, kind: "warning", iconName: "clock",
+            }),
           ]);
         },
       },
@@ -1966,21 +2252,31 @@
           const grid = h("section", { class: "dash-grid", "aria-label": "Appliances" });
           for (const a of state.appliances) {
             const items = state.items.filter(i => i.appliance_id === a.id);
-            const topRow = [
-              h("strong", { text: a.name }),
-              h("span", { class: "pill", text: a.kind }),
-            ];
+            const preview = items.slice(0, 2).map(i => h("span", { class: "pill", text: i.name }));
+            if (items.length > 2) {
+              preview.push(h("span", { class: "pill muted", text: "+" + (items.length - 2) + " more" }));
+            }
+            const subBits = [a.kind];
+            if (a.location) subBits.push(a.location);
             if (state.familyId && a.owner_account_name && a.owner_account_id !== state.accountId) {
-              topRow.push(h("span", { class: "pill accent", text: a.owner_account_name }));
+              subBits.push("by " + a.owner_account_name);
             }
             const card = h("button", {
-              class: "card stack",
-              style: "text-align:left;cursor:pointer;",
+              class: "appliance-tile",
               onClick: () => { state.activeApplianceId = a.id; state.view = "appliance"; render(); },
             }, [
-              h("div", { class: "row" }, topRow),
-              h("div", { class: "muted", text: items.length + " " + pluralize("item", items.length) }),
-              a.location ? h("div", { class: "muted", text: a.location }) : null,
+              h("div", { class: "tile-head" }, [
+                h("span", { class: "tile-icon" }, [icon(applianceIconName(a.kind))]),
+                h("div", {}, [
+                  h("div", { class: "tile-name", text: a.name }),
+                  h("div", { class: "tile-sub", text: subBits.join(" · ") }),
+                ]),
+              ]),
+              h("div", { class: "tile-count" }, [
+                h("b", { text: String(items.length) }),
+                h("span", { text: pluralize("item", items.length) }),
+              ]),
+              preview.length ? h("div", { class: "tile-preview" }, preview) : null,
             ]);
             grid.appendChild(card);
           }
@@ -2018,9 +2314,37 @@
       saveDashboardLayout();
     }
 
+    // Desktop-only primary nav shown above the active view. Mobile users
+    // navigate through the sidebar instead (hidden by CSS below 720px).
+    function primaryNav(activeView) {
+      const entries = [
+        ["dashboard", "Dashboard", "home"],
+        ["inventory", "All Inventory", "list"],
+        ["settings", "Settings", "cog"],
+      ];
+      const nav = h("nav", { class: "primary-nav", "aria-label": "Primary" });
+      for (const [view, label, iconName] of entries) {
+        const isActive = view === activeView;
+        nav.appendChild(h("button", {
+          type: "button",
+          "aria-current": isActive ? "true" : "false",
+          onClick: () => {
+            if (view === state.view) return;
+            state.view = view;
+            if (view === "inventory") state.activeApplianceId = null;
+            if (view === "settings") state.family = null;
+            render();
+          },
+        }, [icon(iconName), h("span", { text: label })]));
+      }
+      return nav;
+    }
+
     function renderDashboard() {
       const main = h("main", { class: "app" });
       const editing = state.dashboardEditing;
+
+      main.appendChild(primaryNav("dashboard"));
 
       // Toolbar: Edit layout / Done + (edit-only) Reset.
       const toolbar = h("div", {
@@ -2032,6 +2356,7 @@
               type: "button", class: "ghost",
               onClick: () => {
                 state.dashboardLayout = [
+                  { id: "hero", visible: true },
                   { id: "stats", visible: true },
                   { id: "expiring", visible: true },
                   { id: "appliances", visible: true },
@@ -2178,10 +2503,51 @@
       return main;
     }
 
-    function statCard(label, value, kind = "", onClick = null) {
+    // Compact icon helpers. Each returns an inline SVG string so we can drop
+    // it into innerHTML without pulling in a sprite system.
+    function icon(name) {
+      const paths = {
+        box:      '<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5v-9Z"/><path d="M3.5 7.5 12 12l8.5-4.5"/><path d="M12 12v9"/>',
+        layers:   '<path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
+        clock:    '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+        warn:     '<path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17v.5"/>',
+        fridge:   '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M5 11h14"/><path d="M8 7v2M8 14v3"/>',
+        freezer:  '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 7v10M8 9l8 6M16 9l-8 6"/>',
+        shelf:    '<path d="M3 5h18M3 12h18M3 19h18"/>',
+        pkg:      '<path d="m12 2 10 5v10l-10 5L2 17V7l10-5Z"/><path d="M2 7l10 5 10-5"/><path d="M12 12v10"/>',
+        home:     '<path d="M3 11.5 12 3l9 8.5V21H3V11.5Z"/><path d="M9 21v-7h6v7"/>',
+        list:     '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+        cog:      '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4.9a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.5a7 7 0 0 0-2 1.2l-2.4-.9-2 3.5 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-.9a7 7 0 0 0 2 1.2L10 21h4l.5-2.5a7 7 0 0 0 2-1.2l2.4.9 2-3.5-2-1.5a7 7 0 0 0 .1-1.2Z"/>',
+      };
+      const d = paths[name] || paths.box;
+      const svg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+      const span = document.createElement("span");
+      span.innerHTML = svg;
+      return span.firstChild;
+    }
+
+    function applianceIconName(kind) {
+      switch (kind) {
+        case "fridge": return "fridge";
+        case "freezer": return "freezer";
+        case "shelf": return "shelf";
+        default: return "pkg";
+      }
+    }
+
+    function statCard(opts) {
+      // Back-compat with the old positional signature: statCard(label, value, kind, onClick)
+      if (typeof opts === "string") {
+        opts = { label: opts, value: arguments[1], kind: arguments[2] || "", onClick: arguments[3] || null };
+      }
+      const { label, value, kind = "", iconName = "box", hint = "", onClick = null } = opts;
       const children = [
-        h("div", { class: "muted", text: label }),
+        h("div", { class: "stat-head" }, [
+          h("div", { class: "stat-label", text: label }),
+          h("span", { class: "stat-icon" }, [icon(iconName)]),
+        ]),
         h("div", { class: "big", text: String(value) }),
+        hint ? h("div", { class: "stat-hint", text: hint }) : h("div"),
       ];
       if (onClick) {
         return h("button", {
@@ -2446,7 +2812,8 @@
 
     function renderGlobalInventory() {
       const main = h("main", { class: "app" });
-      main.appendChild(h("h2", { text: "All Inventory" }));
+      main.appendChild(primaryNav("inventory"));
+      main.appendChild(h("h2", { style: "margin-top:0", text: "All Inventory" }));
       main.appendChild(renderFilters());
 
       const filtered = applyFilters(state.items);
@@ -3035,7 +3402,7 @@
 
     // ---------- Photo helpers (client-side resize + lightbox) ----------
 
-    async function resizeImageToJpegBase64(file, maxDim = 800, quality = 0.75) {
+    async function resizeImageToJpegBase64(file, maxDim = 1600, quality = 0.85) {
       // Load the image. createImageBitmap handles EXIF orientation on modern browsers.
       const bitmap = await createImageBitmap(file).catch(async () => {
         // Fallback for browsers without createImageBitmap on File.
@@ -3589,7 +3956,7 @@
               cameraInput,
               libraryInput,
               h("small", { style: "display:block;color:var(--muted);margin-top:0.25rem",
-                text: "Resized to ~800px JPEG before upload. One photo per item." }),
+                text: "Resized to ~1600px JPEG (up to 10 MB) before upload. One photo per item." }),
               photoPreviewSlot,
             ]);
           })(),
@@ -3729,7 +4096,8 @@
 
     function renderSettings() {
       const main = h("main", { class: "app" });
-      main.appendChild(h("h2", { text: "Settings" }));
+      main.appendChild(primaryNav("settings"));
+      main.appendChild(h("h2", { style: "margin-top:0", text: "Settings" }));
 
       let current = "", next = "", confirm = "";
       const err = h("div", { role: "alert", class: "muted" });

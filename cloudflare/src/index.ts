@@ -1415,7 +1415,8 @@ function httpErrorResponse(c: any, e: unknown): Response {
 
 // ---------- Photos (stored as BLOBs in D1) ----------
 
-const MAX_PHOTO_BYTES_B64 = 2 * 1024 * 1024;
+// 10 MB of binary ≈ 13.4 MB of base64; cap at 14 MB to leave headroom.
+const MAX_PHOTO_BYTES_B64 = 14 * 1024 * 1024;
 
 function looksLikeJpeg(bytes: Uint8Array): boolean {
   return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
@@ -1434,7 +1435,7 @@ app.post("/api/appliances/:id/items/:item_id/photo", async (c) => {
     return jsonError(c, 400, "bad_request", "image_base64 is required");
   }
   if (body.image_base64.length > MAX_PHOTO_BYTES_B64) {
-    return jsonError(c, 400, "bad_request", "photo too large (resize to under ~1.5 MB)");
+    return jsonError(c, 400, "bad_request", "photo too large (max ~10 MB after resize)");
   }
   let bytes: Uint8Array;
   try {
