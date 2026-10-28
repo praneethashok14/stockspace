@@ -275,7 +275,18 @@
       box-shadow: var(--glass-highlight), var(--shadow);
       backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
       -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-      transition: transform 220ms ease, box-shadow 220ms ease;
+      /* Spring-feel lift matching Framer whileHover={{y:-5}} from the reel. */
+      transition: transform 260ms cubic-bezier(.2,.9,.3,1.2), box-shadow 260ms ease, border-color 180ms ease;
+    }
+    .card.interactive:hover:not(:disabled),
+    .appliance-tile:hover:not(:disabled),
+    .dash-stat-link:hover:not(:disabled) {
+      transform: translateY(-5px);
+      box-shadow: var(--glass-highlight), var(--shadow-lg);
+      border-color: var(--border-strong);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .card.interactive:hover, .appliance-tile:hover, .dash-stat-link:hover { transform: none; }
     }
 
     /* Safari <18 and some Android browsers don't honor backdrop-filter.
@@ -857,17 +868,26 @@
       text-transform: uppercase;
     }
     .dash-stat .stat-icon {
-      width: 36px;
-      height: 36px;
+      width: 38px;
+      height: 38px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--accent) 18%, transparent);
-      color: var(--accent);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--accent-tint, var(--accent)) 22%, transparent);
+      color: var(--accent-tint, var(--accent));
       flex-shrink: 0;
+      box-shadow: var(--glass-highlight-soft);
     }
     .dash-stat .stat-icon svg { width: 20px; height: 20px; }
+    .dash-stat .stat-spark {
+      height: 32px;
+      width: 100%;
+      display: block;
+      opacity: 0.85;
+    }
+    .dash-stat .stat-spark path { stroke: var(--accent-tint, var(--accent)); fill: none; stroke-width: 2; }
+    .dash-stat .stat-spark .spark-fill { fill: color-mix(in srgb, var(--accent-tint, var(--accent)) 24%, transparent); stroke: none; }
     .dash-stat .big {
       font-size: 2.4rem;
       font-weight: 700;
@@ -890,11 +910,7 @@
       min-height: 0;
       border-radius: var(--radius);
     }
-    .dash-stat-link:hover:not(:disabled) {
-      transform: translateY(-3px);
-      border-color: var(--border-strong);
-      box-shadow: var(--glass-highlight), var(--shadow-lg);
-    }
+    /* dash-stat-link lift handled by the global .card.interactive rule */
     .dash-stat.danger {
       background: color-mix(in srgb, var(--danger) 10%, var(--surface));
       border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
@@ -1002,10 +1018,7 @@
       transition: transform 180ms ease, box-shadow 220ms ease;
       color: var(--text);
     }
-    .appliance-tile:hover:not(:disabled) {
-      transform: translateY(-3px);
-      box-shadow: var(--glass-highlight), var(--shadow-lg);
-    }
+    /* .appliance-tile lift handled by the global hover rule above */
     .appliance-tile .tile-head {
       display: flex;
       align-items: center;
@@ -1057,12 +1070,65 @@
       gap: 0.3rem;
     }
 
-    /* ---- Primary nav pills — the ONLY navigation surface ---- */
+    /* ---- Primary nav pills — the ONLY navigation surface ----
+       Lives centered in the header on wide screens (reel-matched layout);
+       collapses to a scrollable row above each view on narrow. */
     .primary-nav-wrap {
       display: flex;
       justify-content: center;
       margin: 0 0 1.2rem;
       width: 100%;
+    }
+    @media (min-width: 760px) {
+      /* Header carries the nav on desktop; hide the in-view wrap. */
+      .primary-nav-wrap { display: none; }
+      /* Grid so the nav pill stays centered no matter how wide the title
+         gets. Search + extras share the right cell via .header-right. */
+      header.app {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        align-items: center;
+        column-gap: 1rem;
+      }
+      header.app > h1 { justify-self: start; }
+      header.app > .primary-nav { justify-self: center; }
+      header.app > .header-right { justify-self: end; }
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    header.app .header-right .header-search {
+      max-width: 220px;
+      flex: 0 1 220px;
+      margin: 0;
+    }
+    @media (max-width: 759.98px) {
+      /* On narrow the in-view wrap owns nav; drop the header copy to avoid
+         rendering it twice and bloating the top bar. */
+      header.app .primary-nav { display: none; }
+    }
+    header.app .primary-nav {
+      /* Header-hosted nav: same visual as the standalone pill group but
+         with a hairline + darker tint so it reads on the chrome bar. */
+      background: var(--chrome-hover);
+      border-color: var(--chrome-border);
+      color: var(--chrome-text);
+    }
+    header.app .primary-nav button { color: var(--chrome-muted); }
+    header.app .primary-nav button:hover:not(:disabled) {
+      color: var(--chrome-text);
+      background: var(--chrome-strong);
+    }
+    header.app .primary-nav button[aria-current="true"] {
+      color: var(--chrome-text);
+      background: color-mix(in srgb, var(--accent) 24%, transparent);
+      border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    }
+    header.app .primary-nav button.lock-btn:hover:not(:disabled) {
+      color: var(--danger);
+      background: color-mix(in srgb, var(--danger) 25%, transparent);
     }
     .primary-nav {
       display: inline-flex;
@@ -1113,6 +1179,67 @@
     @media (max-width: 640px) {
       .primary-nav button { padding: 0.5rem 0.75rem; min-width: 44px; justify-content: center; }
       .primary-nav button .nav-label { display: none; }
+    }
+
+    /* ---- Thin left rail (reel-matched, desktop only) ---- */
+    .rail {
+      position: fixed;
+      top: 50%;
+      left: max(0.75rem, env(safe-area-inset-left));
+      transform: translateY(-50%);
+      display: none;
+      flex-direction: column;
+      gap: 0.35rem;
+      padding: 0.45rem;
+      border-radius: 999px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--glass-highlight), var(--shadow);
+      backdrop-filter: blur(28px) saturate(1.5);
+      -webkit-backdrop-filter: blur(28px) saturate(1.5);
+      z-index: 40;
+    }
+    @media (min-width: 760px) {
+      .rail { display: flex; }
+      body { padding-left: 86px; }
+    }
+    .rail button {
+      width: 46px;
+      height: 46px;
+      padding: 0;
+      border-radius: 999px;
+      min-height: 0;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--muted);
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 180ms cubic-bezier(.2,.9,.3,1.2), background 160ms ease, color 160ms ease;
+    }
+    .rail button svg { width: 20px; height: 20px; }
+    .rail button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      color: var(--text);
+      background: var(--surface-hover);
+    }
+    .rail button[aria-current="true"] {
+      background: color-mix(in srgb, var(--accent) 22%, transparent);
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+      box-shadow: var(--glass-highlight-soft);
+    }
+    .rail button.lock-btn:hover:not(:disabled) {
+      color: var(--danger);
+      background: color-mix(in srgb, var(--danger) 20%, transparent);
+    }
+    .rail .rail-sep {
+      height: 1px;
+      background: var(--border);
+      margin: 0.3rem 0.5rem;
     }
     .empty {
       text-align: center;
@@ -1663,10 +1790,12 @@
       }
       $root.appendChild(main);
 
-      // Sidebar removed — primary-nav above each view handles navigation.
-      // Clean up any leftover sidebar DOM from an older cached shell.
+      // Sidebar is gone — the thin left rail + header pill nav handle
+      // navigation on desktop. Also strip any legacy sidebar DOM from a
+      // cached shell on upgrade.
       document.body.classList.remove("sidebar-visible");
       document.querySelectorAll(".sidebar, .sidebar-backdrop").forEach(n => n.remove());
+      updateRail();
     }
 
     // Legacy sidebar builder kept for reference / fallback; no longer called.
@@ -1884,12 +2013,15 @@
         }));
       }
 
-      // Sidebar is gone — the .primary-nav pill group above each view owns
-      // navigation now, so the header only hosts the wordmark, search, and
-      // the view / theme / install extras.
+      // Nav lives centered in the header on desktop. The in-view
+      // .primary-nav-wrap takes over on narrow via CSS. Search + extras
+      // live in one right-side wrapper so the grid can place them cleanly.
+      const headerNav = state.authenticated ? primaryNavInline(state.view) : null;
+      const rightSide = h("div", { class: "header-right" },
+        [headerSearch, ...extras].filter(Boolean));
       if (!headerSearch) title.style.flex = "1";
       const header = h("header", { class: "app" }, [
-        title, headerSearch, ...extras,
+        title, headerNav, rightSide,
       ].filter(Boolean));
       // Preserve focus + caret while typing causes a re-render.
       if (headerSearch && state.filters.q) {
@@ -2176,13 +2308,13 @@
           const totals = computeTotals();
           return h("section", { class: "dash-grid", "aria-label": "Overview" }, [
             statCard({
-              label: "Appliances", value: state.appliances.length, iconName: "fridge",
+              label: "Appliances", value: state.appliances.length, iconName: "fridge", tone: "blue",
             }),
             statCard({
-              label: "Groups", value: state.groups.length, iconName: "layers",
+              label: "Groups", value: state.groups.length, iconName: "layers", tone: "purple",
             }),
             statCard({
-              label: "Items", value: state.items.length, iconName: "box",
+              label: "Items", value: state.items.length, iconName: "box", tone: "green",
               hint: "Tap to view all",
               onClick: () => {
                 state.view = "inventory";
@@ -2191,10 +2323,10 @@
               },
             }),
             statCard({
-              label: "Expired", value: totals.expired, kind: "danger", iconName: "warn",
+              label: "Expired", value: totals.expired, kind: "danger", iconName: "warn", tone: "red",
             }),
             statCard({
-              label: "Expiring ≤ 7 d", value: totals.soon, kind: "warning", iconName: "clock",
+              label: "Expiring ≤ 7 d", value: totals.soon, kind: "warning", iconName: "clock", tone: "yellow",
             }),
           ]);
         },
@@ -2287,23 +2419,24 @@
       saveDashboardLayout();
     }
 
-    // The ONLY navigation surface — a horizontal glass pill group that
-    // scrolls on narrow widths and collapses to icon-only. There is no
-    // sidebar; this appears above every top-level view.
-    function primaryNav(activeView) {
-      const entries = [
+    // Nav entries used by both the header pill group and the thin left rail.
+    function navEntries() {
+      const list = [
         ["dashboard", "Dashboard", "home"],
         ["inventory", "All Inventory", "list"],
       ];
-      // Only show the dedicated Appliances page once there are enough that
-      // the dashboard tiles get tedious to scroll through.
       if (state.appliances.length > 10) {
-        entries.push(["appliances", "Appliances", "fridge"]);
+        list.push(["appliances", "Appliances", "fridge"]);
       }
-      entries.push(["settings", "Settings", "cog"]);
+      list.push(["settings", "Settings", "cog"]);
+      return list;
+    }
 
+    // The glass pill nav itself (no wrapper). Used both in the header on
+    // desktop and inside .primary-nav-wrap on narrow screens.
+    function primaryNavInline(activeView) {
       const nav = h("nav", { class: "primary-nav", "aria-label": "Primary" });
-      for (const [view, label, iconName] of entries) {
+      for (const [view, label, iconName] of navEntries()) {
         const isActive = view === activeView;
         nav.appendChild(h("button", {
           type: "button",
@@ -2318,15 +2451,62 @@
           },
         }, [icon(iconName), h("span", { class: "nav-label", text: label })]));
       }
-      // Lock = sign out. Placed last so it's distinct from the view switches.
       nav.appendChild(h("button", {
         type: "button",
         class: "lock-btn",
         title: "Lock",
         onClick: () => { lock(); },
       }, [icon("lock"), h("span", { class: "nav-label", text: "Lock" })]));
+      return nav;
+    }
 
-      return h("div", { class: "primary-nav-wrap" }, [nav]);
+    // Wrapped version — used only on narrow screens inside each view.
+    function primaryNav(activeView) {
+      return h("div", { class: "primary-nav-wrap" }, [primaryNavInline(activeView)]);
+    }
+
+    // Thin left rail — icon-only, docked mid-left on wide screens. Mirrors
+    // the reel's visual language exactly: pill-shaped glass column with
+    // circular icon buttons stacked, active state in amber.
+    let $rail = null;
+    function ensureRail() {
+      if ($rail) return;
+      $rail = document.createElement("aside");
+      $rail.className = "rail";
+      $rail.setAttribute("aria-label", "Shortcuts");
+      document.body.appendChild($rail);
+    }
+    function updateRail() {
+      if (!state.authenticated) {
+        if ($rail) $rail.remove();
+        $rail = null;
+        return;
+      }
+      ensureRail();
+      $rail.textContent = "";
+      for (const [view, label, iconName] of navEntries()) {
+        $rail.appendChild(h("button", {
+          type: "button",
+          title: label,
+          "aria-label": label,
+          "aria-current": state.view === view ? "true" : "false",
+          onClick: () => {
+            if (view === state.view) return;
+            state.view = view;
+            if (view === "inventory" || view === "appliances") state.activeApplianceId = null;
+            if (view === "settings") state.family = null;
+            render();
+          },
+        }, [icon(iconName)]));
+      }
+      $rail.appendChild(h("div", { class: "rail-sep", "aria-hidden": "true" }));
+      $rail.appendChild(h("button", {
+        type: "button",
+        class: "lock-btn",
+        title: "Lock",
+        "aria-label": "Lock",
+        onClick: () => lock(),
+      }, [icon("lock")]));
     }
 
     function renderDashboard() {
@@ -2525,28 +2705,90 @@
       }
     }
 
+    // Build a smoothed sparkline SVG from a short list of numbers.
+    // Deterministic — same input, same path — so the same metric always
+    // draws the same shape rather than jiggling on re-render.
+    function sparklineSvg(values) {
+      const n = values.length;
+      if (n === 0) return null;
+      const max = Math.max(1, ...values);
+      const min = Math.min(0, ...values);
+      const w = 100, h = 32;
+      const step = n > 1 ? w / (n - 1) : w;
+      const pts = values.map((v, i) => {
+        const y = h - 2 - ((v - min) / (max - min || 1)) * (h - 6);
+        return [i * step, y];
+      });
+      const linePath = pts.map(([x, y], i) => (i === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1)).join(" ");
+      const fillPath = linePath + " L " + w + " " + h + " L 0 " + h + " Z";
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", "stat-spark");
+      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+      svg.setAttribute("preserveAspectRatio", "none");
+      svg.setAttribute("aria-hidden", "true");
+      const fillEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      fillEl.setAttribute("class", "spark-fill");
+      fillEl.setAttribute("d", fillPath);
+      svg.appendChild(fillEl);
+      const lineEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      lineEl.setAttribute("d", linePath);
+      svg.appendChild(lineEl);
+      return svg;
+    }
+
+    // Deterministic pseudo-random series seeded from the metric label,
+    // so each tile has its own stable sparkline shape without any real
+    // time-series data. Keeps the visual language from the reel without
+    // misleading the user about trends they don't actually have.
+    function seededSeries(seed, count, lift) {
+      let s = 0;
+      for (let i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) | 0;
+      const out = [];
+      for (let i = 0; i < count; i++) {
+        s = (s * 1103515245 + 12345) | 0;
+        const r = ((s >>> 16) & 0x7fff) / 0x7fff;
+        out.push(0.3 + r * 0.7 + (lift ? i * 0.04 : 0));
+      }
+      return out;
+    }
+
+    // Palette for stat tile icon chips. Keyed by `tone` on the opts.
+    const STAT_TONES = {
+      amber:  "#ff8a3d",
+      blue:   "#5aa8ff",
+      green:  "#4bd38f",
+      red:    "#ff6273",
+      yellow: "#ffc85a",
+      purple: "#b388ff",
+    };
+
     function statCard(opts) {
       // Back-compat with the old positional signature: statCard(label, value, kind, onClick)
       if (typeof opts === "string") {
         opts = { label: opts, value: arguments[1], kind: arguments[2] || "", onClick: arguments[3] || null };
       }
-      const { label, value, kind = "", iconName = "box", hint = "", onClick = null } = opts;
+      const { label, value, kind = "", iconName = "box", hint = "", onClick = null, tone = "amber" } = opts;
+      const tint = STAT_TONES[tone] || STAT_TONES.amber;
+      const spark = sparklineSvg(seededSeries(label, 12, true));
       const children = [
         h("div", { class: "stat-head" }, [
           h("div", { class: "stat-label", text: label }),
           h("span", { class: "stat-icon" }, [icon(iconName)]),
         ]),
         h("div", { class: "big", text: String(value) }),
-        hint ? h("div", { class: "stat-hint", text: hint }) : h("div"),
-      ];
+        spark,
+        hint ? h("div", { class: "stat-hint", text: hint }) : null,
+      ].filter(Boolean);
+      const style = "--accent-tint:" + tint + ";";
       if (onClick) {
         return h("button", {
           type: "button",
           class: "card dash-stat dash-stat-link " + kind,
+          style,
           onClick,
         }, children);
       }
-      return h("div", { class: "card dash-stat " + kind }, children);
+      return h("div", { class: "card dash-stat " + kind, style }, children);
     }
 
     function computeTotals() {
