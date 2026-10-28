@@ -343,17 +343,18 @@
         max(1rem, env(safe-area-inset-right))
         0.75rem
         max(1rem, env(safe-area-inset-left));
-      /* Glass bar: user-picked chrome hex is used as a translucent tint over
-         the ambient background, with a bright top edge for depth. */
+      /* Glass bar: user-picked chrome hex is used as a translucent tint
+         over the ambient background. No border between header and rail —
+         the rail picks up the same chrome tint seamlessly directly below.
+         The soft outer shadow is the only visual separator from content. */
       background: color-mix(in srgb, var(--chrome) 42%, transparent);
       backdrop-filter: blur(26px) saturate(1.5);
       -webkit-backdrop-filter: blur(26px) saturate(1.5);
-      border-bottom: 1px solid var(--chrome-border);
       box-shadow: var(--glass-highlight), 0 10px 32px -24px rgba(0, 0, 0, 0.6);
       color: var(--chrome-text);
       position: sticky;
       top: 0;
-      z-index: 10;
+      z-index: 50;
     }
     header.app h1 {
       font-size: 1.1rem;
@@ -1115,12 +1116,16 @@
       .primary-nav button .nav-label { display: none; }
     }
 
-    /* ---- Left sidebar: full-height chrome column, unified with top bar
-       into one L-shaped surface. No border between the two so the
-       translucent chrome reads as a single piece. ---- */
+    /* ---- Left sidebar: unified with the top bar into one L-shaped
+       chrome surface. The header spans the full viewport width (over
+       the rail area) and the rail starts right at the bottom of the
+       header, so there's no seam between them. ---- */
     .rail {
       position: fixed;
-      top: 0;
+      /* Starts at the bottom of the sticky header. --header-h is written
+         by JS after each render so it stays pixel-accurate; the 72px
+         fallback matches the header's design min height. */
+      top: var(--header-h, 72px);
       bottom: 0;
       left: 0;
       width: 76px;
@@ -1128,27 +1133,30 @@
       flex-direction: column;
       align-items: center;
       gap: 0.4rem;
-      padding:
-        max(0.75rem, env(safe-area-inset-top))
-        0.5rem
-        max(0.75rem, env(safe-area-inset-bottom))
-        max(0.5rem, env(safe-area-inset-left));
+      padding: 0.75rem 0.5rem max(0.75rem, env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left));
       background: color-mix(in srgb, var(--chrome) 42%, transparent);
-      /* No border-right: the header picks up right where the rail ends,
-         same tint, so they look like one continuous chrome surface. */
       color: var(--chrome-text);
-      box-shadow: var(--glass-highlight), 10px 0 32px -24px rgba(0, 0, 0, 0.6);
-      backdrop-filter: blur(28px) saturate(1.5);
-      -webkit-backdrop-filter: blur(28px) saturate(1.5);
+      /* No border-right and no outer shadow at the right edge — the rail
+         bleeds straight into the main content area with just a soft
+         specular highlight along the top so it reads continuous with
+         the header above. */
+      box-shadow: var(--glass-highlight-soft);
+      backdrop-filter: blur(26px) saturate(1.5);
+      -webkit-backdrop-filter: blur(26px) saturate(1.5);
       z-index: 40;
     }
     @media (min-width: 760px) {
       .rail { display: flex; }
+      /* Keep the body padded for the rail so main's margin:auto still
+         centers in the content area; extend ONLY the header to the
+         viewport's left edge via a negative margin so it sits above the
+         rail as one continuous chrome strip. */
       body { padding-left: 76px; }
-      /* Keep the sticky header's safe-area padding — but the rail now
-         covers the left edge, so the header's left padding only needs
-         to clear the rail, not the inset. */
-      header.app { padding-left: 1rem; }
+      header.app {
+        margin-left: -76px;
+        padding-left: calc(76px + 1rem);
+        width: calc(100% + 76px);
+      }
     }
     /* Push the Lock button down to the bottom; nav items hug the top. */
     .rail .rail-spacer { flex: 1; }
@@ -1742,6 +1750,24 @@
       document.body.classList.remove("sidebar-visible");
       document.querySelectorAll(".sidebar, .sidebar-backdrop").forEach(n => n.remove());
       updateRail();
+      // Measure the sticky header so the rail starts exactly at its
+      // bottom edge; otherwise there's a visible seam between the two
+      // chrome surfaces or they overlap in the corner.
+      syncHeaderHeight();
+    }
+
+    function syncHeaderHeight() {
+      const header = document.querySelector("header.app");
+      if (!header) return;
+      const h = header.getBoundingClientRect().height;
+      document.documentElement.style.setProperty("--header-h", h + "px");
+    }
+    // Re-measure on resize so wrap/column changes keep the rail aligned.
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", () => {
+        // rAF so the browser has done its own layout pass first.
+        requestAnimationFrame(syncHeaderHeight);
+      });
     }
 
     // Legacy sidebar builder kept for reference / fallback; no longer called.
