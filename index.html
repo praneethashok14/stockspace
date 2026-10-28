@@ -31,6 +31,9 @@
 
       --surface: rgba(255, 255, 255, 0.62);
       --surface-2: rgba(255, 255, 255, 0.42);
+      /* surface-hover is MORE opaque than surface so hover makes buttons
+         read as raised, not fainter. */
+      --surface-hover: rgba(255, 255, 255, 0.9);
       --text: #11182c;
       --muted: rgba(17, 24, 44, 0.62);
       --border: rgba(255, 255, 255, 0.6);
@@ -65,6 +68,7 @@
           linear-gradient(180deg, #0a0d18 0%, #060810 100%);
         --surface: rgba(255, 255, 255, 0.06);
         --surface-2: rgba(255, 255, 255, 0.035);
+        --surface-hover: rgba(255, 255, 255, 0.14);
         --text: #e8ecf7;
         --muted: rgba(232, 236, 247, 0.62);
         --border: rgba(255, 255, 255, 0.12);
@@ -86,6 +90,7 @@
         linear-gradient(180deg, #f4f2ee 0%, #eceef5 100%);
       --surface: rgba(255, 255, 255, 0.62);
       --surface-2: rgba(255, 255, 255, 0.42);
+      --surface-hover: rgba(255, 255, 255, 0.9);
       --text: #11182c;
       --muted: rgba(17, 24, 44, 0.62);
       --border: rgba(255, 255, 255, 0.6);
@@ -105,6 +110,7 @@
         linear-gradient(180deg, #0a0d18 0%, #060810 100%);
       --surface: rgba(255, 255, 255, 0.06);
       --surface-2: rgba(255, 255, 255, 0.035);
+      --surface-hover: rgba(255, 255, 255, 0.14);
       --text: #e8ecf7;
       --muted: rgba(232, 236, 247, 0.62);
       --border: rgba(255, 255, 255, 0.12);
@@ -161,8 +167,9 @@
       transition: transform 120ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
     }
     button:hover:not(:disabled) {
-      background: var(--surface-2);
+      background: var(--surface-hover);
       border-color: var(--border-strong);
+      color: var(--text);
     }
     button:active:not(:disabled) { transform: translateY(1px); }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -186,7 +193,7 @@
       box-shadow: none;
       border-color: transparent;
     }
-    button.ghost:hover:not(:disabled) { background: var(--surface-2); }
+    button.ghost:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
     button.icon {
       min-width: 44px;
       min-height: 44px;
@@ -1050,9 +1057,15 @@
       gap: 0.3rem;
     }
 
-    /* ---- Primary nav pills in the main area (desktop) ---- */
+    /* ---- Primary nav pills — the ONLY navigation surface ---- */
+    .primary-nav-wrap {
+      display: flex;
+      justify-content: center;
+      margin: 0 0 1.2rem;
+      width: 100%;
+    }
     .primary-nav {
-      display: none;
+      display: inline-flex;
       gap: 0.3rem;
       padding: 0.3rem;
       border-radius: 999px;
@@ -1061,15 +1074,14 @@
       box-shadow: var(--glass-highlight-soft);
       backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
       -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-      margin: 0 auto 1.2rem;
-      width: fit-content;
+      max-width: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
     }
-    @media (min-width: 720px) {
-      .primary-nav { display: inline-flex; }
-    }
+    .primary-nav::-webkit-scrollbar { display: none; }
     .primary-nav button {
-      min-height: 36px;
-      padding: 0.35rem 0.95rem;
+      min-height: 40px;
+      padding: 0.4rem 1rem;
       border-radius: 999px;
       background: transparent;
       border: 1px solid transparent;
@@ -1081,14 +1093,26 @@
       -webkit-backdrop-filter: none;
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.45rem;
+      white-space: nowrap;
+      flex: 0 0 auto;
     }
-    .primary-nav button svg { width: 16px; height: 16px; }
-    .primary-nav button:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+    .primary-nav button svg { width: 18px; height: 18px; }
+    .primary-nav button:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }
     .primary-nav button[aria-current="true"] {
       background: color-mix(in srgb, var(--accent) 18%, transparent);
       border-color: color-mix(in srgb, var(--accent) 45%, transparent);
       color: var(--accent);
+    }
+    .primary-nav button.lock-btn:hover:not(:disabled) {
+      color: var(--danger);
+      background: var(--danger-bg);
+    }
+    /* On narrow screens the pill row drops labels so all four or five
+       items still fit at a glance; a tooltip keeps names reachable. */
+    @media (max-width: 640px) {
+      .primary-nav button { padding: 0.5rem 0.75rem; min-width: 44px; justify-content: center; }
+      .primary-nav button .nav-label { display: none; }
     }
     .empty {
       text-align: center;
@@ -1639,52 +1663,15 @@
       }
       $root.appendChild(main);
 
-      // The sidebar + backdrop live on <body> and persist across renders so
-      // the CSS `transition: transform` on `.sidebar.open` actually fires —
-      // if they were rebuilt each render the browser would see the final
-      // state on mount and skip the animation.
-      updateSidebar();
+      // Sidebar removed — primary-nav above each view handles navigation.
+      // Clean up any leftover sidebar DOM from an older cached shell.
+      document.body.classList.remove("sidebar-visible");
+      document.querySelectorAll(".sidebar, .sidebar-backdrop").forEach(n => n.remove());
     }
 
-    // Persistent sidebar / backdrop refs. Created lazily on first auth render.
-    let $sidebar = null;
-    let $sidebarBackdrop = null;
-
-    function ensureSidebarElements() {
-      if ($sidebar) return;
-      $sidebarBackdrop = document.createElement("div");
-      $sidebarBackdrop.className = "sidebar-backdrop";
-      $sidebarBackdrop.addEventListener("click", () => {
-        if (state.sidebarOpen) { state.sidebarOpen = false; render(); }
-      });
-      document.body.appendChild($sidebarBackdrop);
-
-      $sidebar = document.createElement("aside");
-      $sidebar.className = "sidebar";
-      $sidebar.setAttribute("aria-label", "Appliances");
-      document.body.appendChild($sidebar);
-    }
-
-    function updateSidebar() {
-      if (!state.authenticated) {
-        document.body.classList.remove("sidebar-visible");
-        if ($sidebar) {
-          $sidebar.classList.remove("open");
-          $sidebarBackdrop.classList.remove("open");
-        }
-        return;
-      }
-      ensureSidebarElements();
-      // Rebuild the sidebar contents each render; the OUTER element persists.
-      $sidebar.textContent = "";
-      for (const child of buildSidebarContents()) $sidebar.appendChild(child);
-      $sidebar.classList.toggle("open", state.sidebarOpen);
-      $sidebarBackdrop.classList.toggle("open", state.sidebarOpen);
-      // Body class drives the "push content" layout on wide screens via CSS.
-      document.body.classList.toggle("sidebar-visible", state.sidebarOpen);
-    }
-
-    function buildSidebarContents() {
+    // Legacy sidebar builder kept for reference / fallback; no longer called.
+    // eslint-disable-next-line no-unused-vars
+    function buildSidebarContents_LEGACY_UNUSED() {
       // Returns an array of child nodes for the persistent <aside>.
       // On wide viewports where the sidebar is docked, selecting an appliance
       // keeps it open; on narrow (overlay) viewports we auto-close.
@@ -1897,26 +1884,12 @@
         }));
       }
 
-      // Hamburger toggle for the appliance sidebar. Hidden while the sidebar
-      // is already open — the sidebar has its own × close button there.
-      const sidebarBtn = state.authenticated && !state.sidebarOpen
-        ? h("button", {
-            type: "button",
-            class: "icon ghost sidebar-btn",
-            "aria-label": "Open appliances sidebar",
-            "aria-expanded": "false",
-            title: "Appliances",
-            onClick: () => { state.sidebarOpen = true; render(); },
-            text: "≡",
-          })
-        : null;
-
-      // Without a search in the header, grow the title so the extras hug the
-      // right edge. With search present, margin:auto on the search centers it
-      // (see header.app .header-search in CSS) and the title stays natural.
+      // Sidebar is gone — the .primary-nav pill group above each view owns
+      // navigation now, so the header only hosts the wordmark, search, and
+      // the view / theme / install extras.
       if (!headerSearch) title.style.flex = "1";
       const header = h("header", { class: "app" }, [
-        sidebarBtn, title, headerSearch, ...extras,
+        title, headerSearch, ...extras,
       ].filter(Boolean));
       // Preserve focus + caret while typing causes a re-render.
       if (headerSearch && state.filters.q) {
@@ -2314,30 +2287,46 @@
       saveDashboardLayout();
     }
 
-    // Desktop-only primary nav shown above the active view. Mobile users
-    // navigate through the sidebar instead (hidden by CSS below 720px).
+    // The ONLY navigation surface — a horizontal glass pill group that
+    // scrolls on narrow widths and collapses to icon-only. There is no
+    // sidebar; this appears above every top-level view.
     function primaryNav(activeView) {
       const entries = [
         ["dashboard", "Dashboard", "home"],
         ["inventory", "All Inventory", "list"],
-        ["settings", "Settings", "cog"],
       ];
+      // Only show the dedicated Appliances page once there are enough that
+      // the dashboard tiles get tedious to scroll through.
+      if (state.appliances.length > 10) {
+        entries.push(["appliances", "Appliances", "fridge"]);
+      }
+      entries.push(["settings", "Settings", "cog"]);
+
       const nav = h("nav", { class: "primary-nav", "aria-label": "Primary" });
       for (const [view, label, iconName] of entries) {
         const isActive = view === activeView;
         nav.appendChild(h("button", {
           type: "button",
+          title: label,
           "aria-current": isActive ? "true" : "false",
           onClick: () => {
             if (view === state.view) return;
             state.view = view;
-            if (view === "inventory") state.activeApplianceId = null;
+            if (view === "inventory" || view === "appliances") state.activeApplianceId = null;
             if (view === "settings") state.family = null;
             render();
           },
-        }, [icon(iconName), h("span", { text: label })]));
+        }, [icon(iconName), h("span", { class: "nav-label", text: label })]));
       }
-      return nav;
+      // Lock = sign out. Placed last so it's distinct from the view switches.
+      nav.appendChild(h("button", {
+        type: "button",
+        class: "lock-btn",
+        title: "Lock",
+        onClick: () => { lock(); },
+      }, [icon("lock"), h("span", { class: "nav-label", text: "Lock" })]));
+
+      return h("div", { class: "primary-nav-wrap" }, [nav]);
     }
 
     function renderDashboard() {
@@ -2518,6 +2507,7 @@
         home:     '<path d="M3 11.5 12 3l9 8.5V21H3V11.5Z"/><path d="M9 21v-7h6v7"/>',
         list:     '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
         cog:      '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4.9a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.5a7 7 0 0 0-2 1.2l-2.4-.9-2 3.5 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-.9a7 7 0 0 0 2 1.2L10 21h4l.5-2.5a7 7 0 0 0 2-1.2l2.4.9 2-3.5-2-1.5a7 7 0 0 0 .1-1.2Z"/>',
+        lock:     '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/>',
       };
       const d = paths[name] || paths.box;
       const svg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
@@ -2573,6 +2563,7 @@
 
     function renderAppliances() {
       const main = h("main", { class: "app" });
+      main.appendChild(primaryNav("appliances"));
 
       const canEdit = canEditStructure();
       const headerKids = [h("h2", { style: "margin:0", text: "Appliances" })];
@@ -2771,9 +2762,10 @@
     function renderApplianceDetail() {
       const a = state.appliances.find(x => x.id === state.activeApplianceId);
       const main = h("main", { class: "app" });
+      main.appendChild(primaryNav(null));
       if (!a) {
         main.appendChild(emptyState("Appliance not found", "It may have been deleted.",
-          () => { state.view = "appliances"; render(); }, "Back to appliances"));
+          () => { state.view = "dashboard"; render(); }, "Back to dashboard"));
         return main;
       }
 
