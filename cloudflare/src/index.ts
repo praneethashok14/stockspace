@@ -35,6 +35,10 @@ interface Group {
   name: string;
   appliance_id: string;
   description?: string | null;
+  // Optional parent-group id for nesting. null / undefined = top-level.
+  // Must point at another group in the SAME appliance; cycles are
+  // rejected on write.
+  parent_group_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1214,7 +1218,12 @@ app.post("/api/groups", async (c) => {
   const csrfErr = requireCsrf(c, session);
   if (csrfErr) return csrfErr;
   const body = await c.req
-    .json<{ name?: string; appliance_id?: string; description?: string }>()
+    .json<{
+      name?: string;
+      appliance_id?: string;
+      description?: string;
+      parent_group_id?: string | null;
+    }>()
     .catch(() => ({}));
   if (!validItemName(body.name)) return jsonError(c, 400, "bad_request", "name is required");
   if (!body.appliance_id)
@@ -1225,11 +1234,19 @@ app.post("/api/groups", async (c) => {
       if (!inv.appliances.some((a) => a.id === body.appliance_id)) {
         throw new HttpErr(404, `appliance ${body.appliance_id} not found`);
       }
+      // Parent group must live in the same appliance.
+      if (body.parent_group_id) {
+        const parent = inv.groups.find((x) => x.id === body.parent_group_id);
+        if (!parent) throw new HttpErr(404, `parent group ${body.parent_group_id} not found`);
+        if (parent.appliance_id !== body.appliance_id)
+          throw new HttpErr(400, "parent group must be in the same appliance");
+      }
       const g: Group = {
         id: newId(),
         name: (body.name as string).trim(),
         appliance_id: body.appliance_id!,
         description: blankToNull(body.description),
+        parent_group_id: body.parent_group_id || null,
         created_at: nowIso(),
         updated_at: nowIso(),
       };
@@ -1250,7 +1267,12 @@ app.patch("/api/groups/:id", async (c) => {
   if (csrfErr) return csrfErr;
   const id = c.req.param("id");
   const body = await c.req
-    .json<{ name?: string; description?: string | null; appliance_id?: string }>()
+    .json<{
+      name?: string;
+      description?: string | null;
+      appliance_id?: string;
+      parent_group_id?: string | null;
+    }>()
     .catch(() => ({}));
   try {
     const owner = await resolveGroupOwner(c.env, session.account_id, id);
@@ -1276,7 +1298,34 @@ app.patch("/api/groups/:id", async (c) => {
         g.name = body.name.trim();
       }
       if (body.description !== undefined) g.description = blankToNull(body.description);
-      if (body.appliance_id !== undefined) g.appliance_id = body.appliance_id;
+      // If appliance moves, descendant groups come with it so the tree
+      // stays consistent and children never point at a parent in another
+      // appliance.
+      const nextApplianceId = body.appliance_id ?? g.appliance_id;
+      if (body.appliance_id !== undefined && body.appliance_id !== g.appliance_id) {
+        const toMove = collectDescendantIds(inv.groups, g.id);
+        for (const dg of inv.groups) {
+          if (dg.id === g.id || toMove.has(dg.id)) dg.appliance_id = body.appliance_id;
+        }
+      }
+      // Parent change: must point at another group in the SAME appliance,
+      // must not be self, must not be a descendant (would create a cycle).
+      if (body.parent_group_id !== undefined) {
+        if (body.parent_group_id === null || body.parent_group_id === "") {
+          g.parent_group_id = null;
+        } else {
+          if (body.parent_group_id === g.id)
+            throw new HttpErr(400, "a group cannot be its own parent");
+          const parent = inv.groups.find((x) => x.id === body.parent_group_id);
+          if (!parent) throw new HttpErr(404, `parent group ${body.parent_group_id} not found`);
+          if (parent.appliance_id !== nextApplianceId)
+            throw new HttpErr(400, "parent group must be in the same appliance");
+          const descendants = collectDescendantIds(inv.groups, g.id);
+          if (descendants.has(body.parent_group_id))
+            throw new HttpErr(400, "parent would create a cycle (it's a descendant)");
+          g.parent_group_id = body.parent_group_id;
+        }
+      }
       g.updated_at = nowIso();
       return g;
     });
@@ -1285,6 +1334,23 @@ app.patch("/api/groups/:id", async (c) => {
     return httpErrorResponse(c, e);
   }
 });
+
+// All descendants of a group (children + their children, …). Used for
+// cycle detection on parent changes and for cascading appliance moves.
+function collectDescendantIds(groups: Group[], rootId: string): Set<string> {
+  const out = new Set<string>();
+  const stack = [rootId];
+  while (stack.length) {
+    const parentId = stack.pop()!;
+    for (const g of groups) {
+      if (g.parent_group_id === parentId && !out.has(g.id)) {
+        out.add(g.id);
+        stack.push(g.id);
+      }
+    }
+  }
+  return out;
+}
 
 app.delete("/api/groups/:id", async (c) => {
   const err = await requireAuth(c);
@@ -1330,6 +1396,16 @@ app.delete("/api/groups/:id", async (c) => {
             item.group_id = moveToGroup;
             item.updated_at = nowIso();
           }
+        }
+      }
+      // Child groups get promoted to the deleted group's parent so the
+      // sub-tree isn't orphaned pointing at a gone id.
+      const victim = inv.groups.find((g) => g.id === id)!;
+      const newParent = victim.parent_group_id || null;
+      for (const g of inv.groups) {
+        if (g.parent_group_id === id) {
+          g.parent_group_id = newParent;
+          g.updated_at = nowIso();
         }
       }
       inv.groups = inv.groups.filter((g) => g.id !== id);

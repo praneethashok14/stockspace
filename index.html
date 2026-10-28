@@ -3330,7 +3330,8 @@
 
     function renderGroupedItems(items, groups, opts) {
       const container = h("div", { class: "stack" });
-      // Grouped items first (one <details> per group), then ungrouped flat.
+      // Grouped items first (one <details> per group, nested by depth),
+      // then ungrouped flat.
       const groupMap = new Map(groups.map(g => [g.id, g]));
       const byGroup = new Map();
       const ungrouped = [];
@@ -3343,13 +3344,18 @@
         }
       }
       // Even empty groups are displayed so the user can see them.
-      for (const g of groups) {
-        if (!byGroup.has(g.id)) byGroup.set(g.id, []);
-      }
-      for (const [gid, groupItems] of byGroup) {
-        const g = groupMap.get(gid);
+      for (const g of groups) if (!byGroup.has(g.id)) byGroup.set(g.id, []);
+      // Walk groups in tree order (DFS) so nested groups render under
+      // their parents in the correct sequence; indent by depth.
+      const applianceId = groups[0]?.appliance_id;
+      const tree = applianceId ? buildGroupTree(applianceId) : [];
+      const inThisBatch = new Set(groups.map(g => g.id));
+      for (const { g, depth } of tree) {
+        if (!inThisBatch.has(g.id)) continue;
+        const groupItems = byGroup.get(g.id) || [];
         const summaryActions = [
           h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openItemDialog(null, g.appliance_id, g.id); }, text: "+ Variant" }),
+          h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openGroupDialog(null, g.appliance_id, g.id); }, text: "+ Subgroup" }),
           h("button", { class: "ghost", onClick: (e) => { e.preventDefault(); e.stopPropagation(); openGroupDialog(g); }, text: "Edit" }),
           h("button", { class: "ghost danger", onClick: (e) => { e.preventDefault(); e.stopPropagation(); deleteGroupFlow(g); }, text: "Delete" }),
         ];
@@ -3358,7 +3364,14 @@
           h("span", { class: "pill", text: groupItems.length + " " + pluralize("variant", groupItems.length) }),
           h("div", { class: "row", style: "margin-left:auto" }, summaryActions),
         ]);
-        const details = h("details", { class: "inv-group", open: true }, [summary]);
+        const indent = depth > 0
+          ? `margin-left:${Math.min(depth, 4) * 1.1}rem;`
+          : "";
+        const details = h("details", {
+          class: "inv-group",
+          open: true,
+          style: indent,
+        }, [summary]);
         if (groupItems.length === 0) {
           details.appendChild(h("div", { class: "inv-item" }, [
             h("div", { class: "muted", text: "No variants yet." }),
@@ -3961,10 +3974,12 @@
       };
       const err = h("div", { class: "muted", role: "alert" });
 
-      // Which groups are valid for the chosen appliance?
+      // Which groups are valid for the chosen appliance? Shown as a
+      // tree indented by depth so nested groups read as hierarchy.
       function groupsForAppliance() {
+        const tree = buildGroupTree(data.appliance_id);
         return [["", "— None —"]].concat(
-          state.groups.filter(g => g.appliance_id === data.appliance_id).map(g => [g.id, g.name]),
+          tree.map(({ g, depth }) => [g.id, "— ".repeat(depth) + g.name]),
         );
       }
 
@@ -4315,14 +4330,45 @@
 
     // ---------- groups ----------
 
-    function openGroupDialog(existing, applianceId) {
+    function openGroupDialog(existing, applianceId, parentGroupId) {
       const isEdit = !!existing;
       const data = {
         name: existing?.name || "",
         appliance_id: existing?.appliance_id || applianceId || state.appliances[0]?.id || "",
         description: existing?.description || "",
+        parent_group_id: existing?.parent_group_id || parentGroupId || "",
       };
       const err = h("div", { class: "muted", role: "alert" });
+
+      // Build the parent dropdown. On edit, exclude self + descendants
+      // (would create a cycle). Shows "(top-level)" plus every eligible
+      // group in the same appliance, indented by depth for readability.
+      function parentOptions() {
+        const forbid = new Set();
+        if (isEdit) {
+          forbid.add(existing.id);
+          for (const d of descendantGroupIds(existing.id)) forbid.add(d);
+        }
+        const tree = buildGroupTree(data.appliance_id);
+        const opts = [["", "(top-level)"]];
+        for (const node of tree) {
+          if (forbid.has(node.g.id)) continue;
+          opts.push([node.g.id, "— ".repeat(node.depth) + node.g.name]);
+        }
+        return opts;
+      }
+
+      let parentSelect = selectEl(parentOptions(), data.parent_group_id,
+        (v) => { data.parent_group_id = v; });
+      const parentLabel = h("label", {}, ["Parent group (optional)", parentSelect]);
+
+      function rebuildParentSelect() {
+        const next = selectEl(parentOptions(), data.parent_group_id,
+          (v) => { data.parent_group_id = v; });
+        parentSelect.replaceWith(next);
+        parentSelect = next;
+      }
+
       openDialog({
         title: isEdit ? "Edit group" : "Add group",
         body: h("form", {
@@ -4337,12 +4383,22 @@
                 if (isEdit) {
                   await api("/api/groups/" + encodeURIComponent(existing.id), {
                     method: "PATCH",
-                    body: { name: data.name, description: data.description, appliance_id: data.appliance_id },
+                    body: {
+                      name: data.name,
+                      description: data.description,
+                      appliance_id: data.appliance_id,
+                      parent_group_id: data.parent_group_id || null,
+                    },
                   });
                 } else {
                   await api("/api/groups", {
                     method: "POST",
-                    body: { name: data.name, appliance_id: data.appliance_id, description: data.description || null },
+                    body: {
+                      name: data.name,
+                      appliance_id: data.appliance_id,
+                      description: data.description || null,
+                      parent_group_id: data.parent_group_id || null,
+                    },
                   });
                 }
                 await reloadInventory();
@@ -4361,8 +4417,9 @@
           ]),
           !isEdit ? h("label", {}, ["Appliance",
             selectEl(state.appliances.map(a => [a.id, a.name]), data.appliance_id,
-              (v) => { data.appliance_id = v; }),
+              (v) => { data.appliance_id = v; data.parent_group_id = ""; rebuildParentSelect(); }),
           ]) : null,
+          parentLabel,
           h("label", {}, ["Description (optional)",
             h("textarea", { onInput: (e) => { data.description = e.target.value; }, text: data.description }),
           ]),
@@ -4373,6 +4430,45 @@
           { label: isEdit ? "Save" : "Add", primary: true, submit: "group-form" },
         ],
       });
+    }
+
+    // Build the group tree for an appliance as a flat list of {g, depth}
+    // in DFS order, so the UI can render / select by depth.
+    function buildGroupTree(applianceId) {
+      const all = state.groups.filter(g => g.appliance_id === applianceId);
+      const byParent = new Map();
+      for (const g of all) {
+        const key = g.parent_group_id || "";
+        if (!byParent.has(key)) byParent.set(key, []);
+        byParent.get(key).push(g);
+      }
+      for (const arr of byParent.values()) arr.sort((a, b) => a.name.localeCompare(b.name));
+      const out = [];
+      function walk(parentId, depth) {
+        for (const g of (byParent.get(parentId) || [])) {
+          out.push({ g, depth });
+          walk(g.id, depth + 1);
+        }
+      }
+      walk("", 0);
+      return out;
+    }
+
+    // All descendants of a group id, as a Set. Used to prevent cycle
+    // selection in parent-group dropdowns.
+    function descendantGroupIds(rootId) {
+      const out = new Set();
+      const stack = [rootId];
+      while (stack.length) {
+        const parentId = stack.pop();
+        for (const g of state.groups) {
+          if (g.parent_group_id === parentId && !out.has(g.id)) {
+            out.add(g.id);
+            stack.push(g.id);
+          }
+        }
+      }
+      return out;
     }
 
     async function deleteGroupFlow(group) {
