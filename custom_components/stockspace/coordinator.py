@@ -80,3 +80,66 @@ class StockSpaceCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except aiohttp.ClientError as err:
             _LOGGER.warning("Photo fetch error: %s", err)
             return None
+
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        headers = dict(self._headers())
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        try:
+            async with self._session.request(
+                method,
+                f"{self._base_url}{path}",
+                headers=headers,
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                text = await resp.text()
+                if resp.status >= 400:
+                    raise UpdateFailed(
+                        f"StockSpace {method} {path} -> {resp.status}: {text[:200]}"
+                    )
+                if not text:
+                    return {}
+                try:
+                    return await resp.json(content_type=None)
+                except Exception:  # noqa: BLE001
+                    return {}
+        except aiohttp.ClientError as err:
+            raise UpdateFailed(f"Error talking to StockSpace: {err}") from err
+
+    def find_item(self, item_id: str) -> dict[str, Any] | None:
+        for i in (self.data or {}).get("items", []):
+            if i.get("id") == item_id:
+                return i
+        return None
+
+    async def async_create_item(
+        self, appliance_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        return await self._request_json(
+            "POST", f"/api/appliances/{appliance_id}/items", body
+        )
+
+    async def async_create_group(self, body: dict[str, Any]) -> dict[str, Any]:
+        return await self._request_json("POST", "/api/groups", body)
+
+    async def async_patch_item(
+        self, appliance_id: str, item_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        return await self._request_json(
+            "PATCH", f"/api/appliances/{appliance_id}/items/{item_id}", body
+        )
+
+    async def async_adjust_item(
+        self, appliance_id: str, item_id: str, delta: float
+    ) -> dict[str, Any]:
+        return await self._request_json(
+            "POST",
+            f"/api/appliances/{appliance_id}/items/{item_id}/adjust",
+            {"delta": delta},
+        )

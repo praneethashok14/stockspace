@@ -1,0 +1,190 @@
+add_item:
+  name: Add item
+  description: Add a new item to a StockSpace appliance.
+  fields:
+    device_id:
+      name: Appliance
+      description: The StockSpace appliance device to add the item to.
+      required: true
+      selector:
+        device:
+          integration: stockspace
+    name:
+      name: Name
+      description: Item name (e.g. "Milk").
+      required: true
+      example: Milk
+      selector:
+        text:
+    tracking:
+      name: Tracking
+      description: How to count this item. "Individual" uses quantity + unit; "Pack" counts whole packs with an opened/unopened state.
+      required: true
+      default: individual
+      selector:
+        select:
+          options:
+            - individual
+            - pack
+    quantity:
+      name: Quantity
+      description: For individual tracking. Decimal allowed.
+      example: 2
+      selector:
+        number:
+          min: 0
+          step: 0.1
+          mode: box
+    unit:
+      name: Unit
+      description: For individual tracking. e.g. "L", "pcs", "g".
+      example: L
+      selector:
+        text:
+    pack_count:
+      name: Pack count
+      description: For pack tracking. Whole packs only.
+      example: 3
+      selector:
+        number:
+          min: 0
+          step: 1
+          mode: box
+    pack_label:
+      name: Pack label
+      description: For pack tracking. e.g. "6-pack", "500g box".
+      example: 6-pack
+      selector:
+        text:
+    pack_status:
+      name: Pack status
+      description: For pack tracking. Whether the current pack is opened or unopened.
+      default: unopened
+      selector:
+        select:
+          options:
+            - unopened
+            - opened
+    group_entity:
+      name: Group (optional)
+      description: Group sensor to place the item in. Leave empty for ungrouped.
+      selector:
+        entity:
+          integration: stockspace
+          domain: sensor
+    category:
+      name: Category
+      description: Optional free-text category.
+      selector:
+        text:
+    expiration_date:
+      name: Expiration date
+      description: Optional. YYYY-MM-DD.
+      example: "2026-12-31"
+      selector:
+        date:
+    notes:
+      name: Notes
+      description: Optional free-text notes.
+      selector:
+        text:
+          multiline: true
+
+add_group:
+  name: Add group
+  description: Create a new group inside a StockSpace appliance.
+  fields:
+    device_id:
+      name: Appliance
+      description: The StockSpace appliance device to add the group to.
+      required: true
+      selector:
+        device:
+          integration: stockspace
+    name:
+      name: Name
+      description: Group name (e.g. "Dairy shelf").
+      required: true
+      example: Dairy shelf
+      selector:
+        text:
+    description:
+      name: Description
+      description: Optional free-text description.
+      selector:
+        text:
+          multiline: true
+    parent_group_entity:
+      name: Parent group (optional)
+      description: Nest this group under another one. Pick a group sensor in the same appliance.
+      selector:
+        entity:
+          integration: stockspace
+          domain: sensor
+
+set_quantity:
+  name: Set item quantity
+  description: Set an item's quantity (individual) or pack count (pack) to an exact value.
+  fields:
+    entity_id:
+      name: Item
+      description: The item sensor to update.
+      required: true
+      selector:
+        entity:
+          integration: stockspace
+          domain: sensor
+    value:
+      name: Value
+      description: New quantity (individual) or pack count (pack, whole number).
+      required: true
+      example: 3
+      selector:
+        number:
+          min: 0
+          step: 0.1
+          mode: box
+
+adjust_quantity:
+  name: Adjust item quantity
+  description: Change an item's quantity by a delta (positive adds, negative subtracts).
+  fields:
+    entity_id:
+      name: Item
+      description: The item sensor to update.
+      required: true
+      selector:
+        entity:
+          integration: stockspace
+          domain: sensor
+    delta:
+      name: Delta
+      description: Signed amount to add. Use -1 to decrement.
+      required: true
+      example: -1
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.1
+          mode: box
+
+assign_group:
+  name: Move item to group
+  description: Reassign an item to a different group, or clear its group.
+  fields:
+    entity_id:
+      name: Item
+      description: The item sensor to move.
+      required: true
+      selector:
+        entity:
+          integration: stockspace
+          domain: sensor
+    group_entity:
+      name: Target group
+      description: Pick a group sensor in the same appliance. Leave empty to ungroup.
+      selector:
+        entity:
+          integration: stockspace
+          domain: sensor

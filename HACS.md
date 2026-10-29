@@ -17,7 +17,42 @@ Each appliance becomes an HA **device**. Under each device you get:
 | `sensor.<item name>`                | Quantity (`individual`) or pack count (`pack`); unit = unit / label  |
 | `image.<item name>_photo`           | Item photo (only for items that have one)                            |
 
-Polls every 60 seconds.
+Polls every 60 seconds. After any service call the integration also refreshes
+immediately, so changes you make from HA show up without waiting a minute.
+
+## Services
+
+Every mutation goes through the same bearer-token auth as the read side.
+
+### `stockspace.add_item`
+Create a new item in an appliance.
+- `device_id` *(required)* — pick the appliance device.
+- `name` *(required)*, `tracking` *(required: `individual` or `pack`)*.
+- Individual tracking: `quantity`, `unit`.
+- Pack tracking: `pack_count`, `pack_label`, `pack_status` (`unopened` default).
+- Optional: `group_entity` (group sensor in the same appliance), `category`,
+  `expiration_date` (YYYY-MM-DD), `notes`.
+
+### `stockspace.add_group`
+Create a new group.
+- `device_id` *(required)*, `name` *(required)*.
+- Optional: `description`, `parent_group_entity` (nest under an existing
+  group in the same appliance).
+
+### `stockspace.set_quantity`
+Set an item's quantity to an exact value. Works for both tracking modes
+(pack items round to whole numbers).
+- `entity_id` *(required)* — the item sensor.
+- `value` *(required)*.
+
+### `stockspace.adjust_quantity`
+Change an item's quantity by a signed delta. `delta: -1` decrements.
+- `entity_id` *(required)*, `delta` *(required)*.
+
+### `stockspace.assign_group`
+Move an item to a different group, or clear its group.
+- `entity_id` *(required)* — the item sensor.
+- `group_entity` *(optional)* — target group sensor. Omit to ungroup.
 
 ## Install
 
