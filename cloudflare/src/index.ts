@@ -15,6 +15,10 @@ interface Session {
   account_id: string;
   csrf: string;
   created_at: number;
+  // When the request was authenticated by an API token (bearer), this
+  // holds the token row id. CSRF is skipped for token-auth requests
+  // (the token itself is the secret; there's no cookie to protect).
+  api_token_id?: string | null;
 }
 
 type Kind = "fridge" | "freezer" | "shelf" | "other";
@@ -198,6 +202,29 @@ async function revokeSession(env: Env, id: string): Promise<void> {
 }
 
 async function requireAuth(c: any): Promise<Response | null> {
+  // Bearer token takes precedence (used by the Home Assistant
+  // integration and any other API client). CSRF is skipped on these
+  // requests because the token itself is the secret.
+  const authHeader = c.req.header("authorization") || c.req.header("Authorization");
+  if (authHeader && /^Bearer\s+/i.test(authHeader)) {
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const row = await verifyApiToken(c.env, token);
+    if (!row) return jsonError(c, 401, "unauthorized", "invalid API token");
+    c.set("session", {
+      account_id: row.account_id,
+      csrf: "",
+      created_at: Date.now(),
+      api_token_id: row.id,
+    } satisfies Session);
+    // Fire-and-forget last_used_at update; failures must not block the request.
+    c.executionCtx?.waitUntil?.(
+      c.env.DB.prepare("UPDATE api_tokens SET last_used_at = ? WHERE id = ?")
+        .bind(nowIso(), row.id)
+        .run()
+        .catch(() => {}),
+    );
+    return null;
+  }
   const id = getCookie(c, SESSION_COOKIE);
   if (!id) return jsonError(c, 401, "unauthorized", "authentication required");
   const session = await loadSession(c.env, id);
@@ -207,6 +234,9 @@ async function requireAuth(c: any): Promise<Response | null> {
 }
 
 function requireCsrf(c: any, session: Session): Response | null {
+  // Token-authenticated requests skip CSRF — the token header IS the
+  // auth, no cookie is sent, so there's nothing to CSRF-attack.
+  if (session.api_token_id) return null;
   const token = c.req.header(CSRF_HEADER);
   if (!token || !constantTimeEq(token, session.csrf)) {
     return jsonError(c, 403, "forbidden", "request not permitted");
@@ -492,6 +522,100 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
+// ---------- API tokens (bearer auth for integrations) ----------
+
+interface ApiTokenRow {
+  id: string;
+  account_id: string;
+  label: string;
+  token_hash: string;
+  token_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+// SHA-256 hex of the plaintext token. Stored hashed so a DB leak
+// doesn't yield usable tokens.
+async function hashApiToken(plaintext: string): Promise<string> {
+  const bytes = new TextEncoder().encode(plaintext);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hex;
+}
+
+async function verifyApiToken(
+  env: Env,
+  plaintext: string,
+): Promise<ApiTokenRow | null> {
+  if (!plaintext || plaintext.length < 20 || plaintext.length > 200) return null;
+  const hash = await hashApiToken(plaintext);
+  const row = await env.DB.prepare(
+    "SELECT id, account_id, label, token_hash, token_prefix, created_at, last_used_at " +
+      "FROM api_tokens WHERE token_hash = ?",
+  )
+    .bind(hash)
+    .first<ApiTokenRow>();
+  return row ?? null;
+}
+
+async function createApiToken(
+  env: Env,
+  accountId: string,
+  label: string,
+): Promise<{ id: string; token: string; prefix: string }> {
+  // 32 random bytes → ~43 base64url chars. Prefixed with "ss_" so it's
+  // recognisable in logs and can't be confused with other secrets.
+  const buf = new Uint8Array(32);
+  crypto.getRandomValues(buf);
+  const token =
+    "ss_" +
+    btoa(String.fromCharCode(...buf))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  const id = newId();
+  const prefix = token.slice(0, 8);
+  const hash = await hashApiToken(token);
+  await env.DB.prepare(
+    "INSERT INTO api_tokens (id, account_id, label, token_hash, token_prefix, created_at, last_used_at)" +
+      " VALUES (?, ?, ?, ?, ?, ?, NULL)",
+  )
+    .bind(id, accountId, label.trim().slice(0, 60) || "API token", hash, prefix, nowIso())
+    .run();
+  return { id, token, prefix };
+}
+
+async function listApiTokens(env: Env, accountId: string) {
+  const result = await env.DB.prepare(
+    "SELECT id, label, token_prefix, created_at, last_used_at FROM api_tokens" +
+      " WHERE account_id = ? ORDER BY created_at DESC",
+  )
+    .bind(accountId)
+    .all<{
+      id: string;
+      label: string;
+      token_prefix: string;
+      created_at: string;
+      last_used_at: string | null;
+    }>();
+  return result.results || [];
+}
+
+async function revokeApiToken(
+  env: Env,
+  accountId: string,
+  id: string,
+): Promise<boolean> {
+  const r = await env.DB.prepare(
+    "DELETE FROM api_tokens WHERE id = ? AND account_id = ?",
+  )
+    .bind(id, accountId)
+    .run();
+  return (r.meta?.changes ?? 0) > 0;
+}
+
 // ---------- Routes: health + auth ----------
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
@@ -629,6 +753,53 @@ app.post("/api/auth/change-pin", async (c) => {
   // against a now-invalid pin — acceptable for a family app.
   await revokeSession(c.env, (await getCookie(c, SESSION_COOKIE)) ?? "");
   clearSessionCookie(c);
+  return c.body(null, 204);
+});
+
+// ---------- Routes: API tokens (bearer auth management) ----------
+
+app.get("/api/account/api-tokens", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  // Token-authenticated requests cannot list / mutate tokens (prevents
+  // an API token from quietly provisioning more tokens for itself).
+  if (session.api_token_id)
+    return jsonError(c, 403, "forbidden", "API token management requires a cookie session");
+  const tokens = await listApiTokens(c.env, session.account_id);
+  return c.json({ tokens });
+});
+
+app.post("/api/account/api-tokens", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  if (session.api_token_id)
+    return jsonError(c, 403, "forbidden", "API token management requires a cookie session");
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const body = await c.req.json<{ label?: string }>().catch(() => ({}));
+  const label = (body.label || "").trim();
+  if (!label) return jsonError(c, 400, "bad_request", "label is required");
+  const created = await createApiToken(c.env, session.account_id, label);
+  // Returned ONCE — never retrievable again after this response.
+  return c.json(
+    { id: created.id, token: created.token, prefix: created.prefix, label },
+    201,
+  );
+});
+
+app.delete("/api/account/api-tokens/:id", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  if (session.api_token_id)
+    return jsonError(c, 403, "forbidden", "API token management requires a cookie session");
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const id = c.req.param("id");
+  const ok = await revokeApiToken(c.env, session.account_id, id);
+  if (!ok) return jsonError(c, 404, "not_found", "token not found");
   return c.body(null, 204);
 });
 

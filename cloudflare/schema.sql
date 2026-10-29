@@ -75,3 +75,21 @@ CREATE INDEX IF NOT EXISTS idx_family_invitations_invitee
   ON family_invitations(invitee_account_id, status);
 CREATE INDEX IF NOT EXISTS idx_family_invitations_family
   ON family_invitations(family_id, status);
+
+-- API tokens: long-lived bearer tokens for programmatic access from
+-- integrations (e.g. the Home Assistant integration). The plaintext
+-- token is shown once at creation; only sha-256(token) is stored.
+-- CSRF is skipped on token-authenticated requests — the token itself
+-- is the secret, and no cookie is set.
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id            TEXT PRIMARY KEY,
+  account_id    TEXT NOT NULL,
+  label         TEXT NOT NULL,
+  token_hash    TEXT NOT NULL UNIQUE,
+  token_prefix  TEXT NOT NULL,  -- first 8 chars of plaintext, for UI
+  created_at    TEXT NOT NULL,
+  last_used_at  TEXT,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_account
+  ON api_tokens(account_id);

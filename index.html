@@ -4581,6 +4581,8 @@
 
       main.appendChild(renderAppearanceSection());
 
+      main.appendChild(renderApiTokensSection());
+
       main.appendChild(h("div", { class: "card stack" }, [
         h("h3", { style: "margin-top:0", text: "About" }),
         h("p", { class: "muted", text: "StockSpace stores all data on your own backend. Sessions expire after inactivity." }),
@@ -4588,6 +4590,146 @@
       ]));
 
       return main;
+    }
+
+    function renderApiTokensSection() {
+      // Lazy-load the token list on first open; cache on state so a
+      // re-render doesn't re-fetch unnecessarily.
+      if (state.apiTokens === undefined) {
+        state.apiTokens = null;  // "loading" sentinel
+        withBusy("Loading tokens…", async () => {
+          try {
+            const resp = await api("/api/account/api-tokens");
+            state.apiTokens = resp.tokens || [];
+          } catch (_) {
+            state.apiTokens = [];
+          }
+          render();
+        });
+      }
+
+      const children = [
+        h("h3", { style: "margin-top:0", text: "API tokens" }),
+        h("p", { class: "muted",
+          text: "Long-lived bearer tokens for integrations (e.g. Home Assistant). Send as 'Authorization: Bearer <token>' on API requests; the token is the only auth needed — no PIN, no cookie, no CSRF. Shown ONCE at creation; store it somewhere safe." }),
+      ];
+
+      if (state.apiTokens === null) {
+        children.push(h("div", { class: "loading" }, [
+          h("span", { class: "spinner" }), h("span", { text: " Loading…" }),
+        ]));
+      } else if (state.apiTokens.length === 0) {
+        children.push(h("p", { class: "muted", text: "No API tokens yet." }));
+      } else {
+        const list = h("div", { class: "stack", style: "gap:0.5rem" });
+        for (const t of state.apiTokens) {
+          const used = t.last_used_at
+            ? "last used " + new Date(t.last_used_at).toLocaleString()
+            : "never used";
+          const created = "created " + new Date(t.created_at).toLocaleDateString();
+          list.appendChild(h("div", {
+            class: "row",
+            style: "justify-content:space-between;gap:0.5rem;padding:0.5rem 0.1rem;border-top:1px solid var(--border)",
+          }, [
+            h("div", {}, [
+              h("div", { style: "font-weight:600", text: t.label }),
+              h("div", { class: "muted", style: "font-size:0.82rem" }, [
+                h("code", { text: t.token_prefix + "…" }),
+                h("span", { text: "  ·  " + created + "  ·  " + used }),
+              ]),
+            ]),
+            h("button", {
+              class: "ghost danger",
+              onClick: async () => {
+                if (!confirm("Revoke this token? Any integration using it will stop working.")) return;
+                await withBusy("Revoking…", async () => {
+                  try {
+                    await api("/api/account/api-tokens/" + encodeURIComponent(t.id), { method: "DELETE" });
+                    state.apiTokens = state.apiTokens.filter(x => x.id !== t.id);
+                    toast("Token revoked.", "success");
+                    render();
+                  } catch (e) {
+                    toast(e.message, "error");
+                  }
+                });
+              },
+              text: "Revoke",
+            }),
+          ]));
+        }
+        children.push(list);
+      }
+
+      // Create form
+      let newLabel = "";
+      const err = h("div", { class: "muted", role: "alert" });
+      const labelInput = h("input", {
+        type: "text", placeholder: "e.g. Home Assistant", maxlength: "60",
+        onInput: (e) => { newLabel = e.target.value; },
+      });
+      children.push(h("form", {
+        onSubmit: async (e) => {
+          e.preventDefault();
+          err.textContent = "";
+          const label = newLabel.trim();
+          if (!label) { err.textContent = "Give the token a short label."; return; }
+          await withBusy("Creating token…", async () => {
+            try {
+              const resp = await api("/api/account/api-tokens", {
+                method: "POST",
+                body: { label },
+              });
+              if (!state.apiTokens) state.apiTokens = [];
+              state.apiTokens.unshift({
+                id: resp.id,
+                label: resp.label,
+                token_prefix: resp.prefix,
+                created_at: new Date().toISOString(),
+                last_used_at: null,
+              });
+              newLabel = "";
+              labelInput.value = "";
+              showNewTokenDialog(resp.token, resp.label);
+              render();
+            } catch (e2) {
+              err.textContent = e2.message;
+            }
+          });
+        },
+      }, [
+        h("label", { style: "margin-top:1rem" }, ["New token", labelInput]),
+        err,
+        h("div", { class: "row", style: "justify-content:flex-end;margin-top:0.5rem" }, [
+          h("button", { type: "submit", class: "primary", text: "+ Create token" }),
+        ]),
+      ]));
+
+      return h("div", { class: "card stack" }, children);
+    }
+
+    // Reveal the plaintext token exactly once with a copy button.
+    function showNewTokenDialog(token, label) {
+      const tokenEl = h("code", {
+        style: "display:block;padding:0.75rem;border-radius:var(--radius-sm);background:var(--surface-2);"
+             + "word-break:break-all;font-size:0.85rem;user-select:all;border:1px solid var(--border)",
+        text: token,
+      });
+      openDialog({
+        title: "New API token: " + label,
+        body: h("div", { class: "stack" }, [
+          h("p", { text: "Copy this token now — it won't be shown again." }),
+          tokenEl,
+          h("p", { class: "muted", style: "font-size:0.85rem",
+            text: "Send as 'Authorization: Bearer <token>' on API requests." }),
+        ]),
+        actions: [
+          { label: "Copy", primary: true, onClick: async () => {
+              try { await navigator.clipboard.writeText(token); toast("Copied.", "success"); }
+              catch (_) { toast("Clipboard blocked — select and copy manually.", "error"); }
+            } },
+          { label: "Done", onClick: closeDialog },
+        ],
+      });
     }
 
     function renderTagsSection() {
