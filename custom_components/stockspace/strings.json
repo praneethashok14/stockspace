@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to StockSpace",
+        "description": "Enter the URL of your StockSpace deployment and an API token generated in Settings → API tokens.",
+        "data": {
+          "base_url": "Base URL (e.g. https://stockspace.example.workers.dev)",
+          "api_token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach StockSpace at that URL.",
+      "invalid_auth": "The API token was rejected."
+    },
+    "abort": {
+      "already_configured": "This StockSpace account is already configured."
+    }
+  }
+}
