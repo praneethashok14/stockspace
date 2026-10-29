@@ -20,6 +20,25 @@ Each appliance becomes an HA **device**. Under each device you get:
 Polls every 60 seconds. After any service call the integration also refreshes
 immediately, so changes you make from HA show up without waiting a minute.
 
+## Dashboard card (zero-config)
+
+The integration ships a Lovelace card that auto-lists every item grouped by
+appliance, with `−` / `+` buttons, tap-the-number-to-set-exact, and a
+`+ item` button per appliance.
+
+Add it to any dashboard:
+
+1. Edit dashboard → **Add card** → **Manual**
+2. Paste:
+   ```yaml
+   type: custom:stockspace-card
+   ```
+
+That's it — no entity list, no config. The card is auto-registered as a
+Lovelace resource when the integration loads, so you don't need to add it to
+**Settings → Dashboards → Resources** manually. If a hard refresh is needed
+after an update, shift-reload the browser tab.
+
 ## Services
 
 Every mutation goes through the same bearer-token auth as the read side.

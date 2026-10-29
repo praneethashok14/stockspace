@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -19,6 +22,8 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE]
 
+CARD_URL = "/stockspace_static/stockspace-card.js"
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up StockSpace from a config entry."""
@@ -30,7 +35,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     _async_register_services(hass)
+    await _async_register_card(hass)
     return True
+
+
+async def _async_register_card(hass: HomeAssistant) -> None:
+    """Serve the bundled Lovelace card and register it as a frontend resource."""
+    if hass.data.setdefault(DOMAIN, {}).get("_card_registered"):
+        return
+    www_dir = Path(__file__).parent / "www"
+    try:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig("/stockspace_static", str(www_dir), True)]
+        )
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Could not serve StockSpace card assets: %s", err)
+        return
+    add_extra_js_url(hass, CARD_URL)
+    hass.data[DOMAIN]["_card_registered"] = True
+    _LOGGER.info("Registered StockSpace Lovelace card at %s", CARD_URL)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
