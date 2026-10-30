@@ -93,3 +93,18 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_api_tokens_account
   ON api_tokens(account_id);
+
+-- Per-account UI preferences (theme choice, density, custom chrome/bg
+-- colours and accent). Lives server-side so a user who logs in on
+-- another device sees the same look without re-picking it. One JSON
+-- blob per account, upserted whole on every change.
+--
+-- Deliberately NOT storing background images here: those are inlined
+-- as data URLs by the picker and can push past D1's cell size; they
+-- stay in localStorage per device.
+CREATE TABLE IF NOT EXISTS account_preferences (
+  account_id  TEXT PRIMARY KEY,
+  prefs       TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);

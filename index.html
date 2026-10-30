@@ -1663,6 +1663,7 @@
           state.accountName = sess.account_name || null;
           state.familyId = sess.family_id || null;
           state.familyRole = sess.family_role || null;
+          await loadServerPrefs();
           await reloadInventory();
         }
       } catch (_) {
@@ -1679,6 +1680,9 @@
       state.accountName = resp.account_name || null;
       state.familyId = null;
       state.familyRole = null;
+      // A fresh account has no server prefs yet; seed from the current local
+      // state so this device's choice carries over as the account's baseline.
+      queueServerPrefsSave();
       try {
         await reloadInventory();
       } catch (err) {
@@ -1701,6 +1705,7 @@
       state.accountName = resp.account_name || null;
       state.familyId = resp.family_id || null;
       state.familyRole = resp.family_role || null;
+      await loadServerPrefs();
       try {
         await reloadInventory();
       } catch (err) {
@@ -2064,6 +2069,7 @@
       else document.documentElement.dataset.theme = nextTheme;
       try { localStorage.setItem("stockspace_theme", nextTheme); } catch (_) {}
       applyCustomTheme();
+      queueServerPrefsSave();
       render();
     }
 
@@ -2071,6 +2077,7 @@
       const next = { full: "compact", compact: "grid", grid: "full" };
       state.density = next[state.density] || "full";
       try { localStorage.setItem("stockspace_density", state.density); } catch (_) {}
+      queueServerPrefsSave();
       render();
     }
 
@@ -2152,6 +2159,96 @@
     function saveCustomTheme() {
       try { localStorage.setItem("stockspace_custom_theme", JSON.stringify(state.customTheme)); }
       catch (_) {}
+      queueServerPrefsSave();
+    }
+
+    // ---------- Server-synced preferences ----------
+    //
+    // The things we sync: theme (auto/light/dark), density, and the custom-
+    // theme chrome/bg colours + accent. Deliberately NOT bgImageLight/Dark —
+    // those are inlined data URLs that can get large, so they stay in
+    // localStorage per device.
+    //
+    // On login we GET /api/account/preferences and merge in whatever the
+    // server has (server wins for conflicting fields; a user who picks dark
+    // on their phone should see dark on their laptop next time). On every
+    // change we debounce-save back. localStorage is still written so first
+    // paint on reload doesn't flash the wrong colours while we wait for the
+    // server.
+    function snapshotSyncedPrefs() {
+      const t = state.customTheme || {};
+      const theme = document.documentElement.dataset.theme || "auto";
+      return {
+        theme,
+        density: state.density || "full",
+        customTheme: {
+          chromeLight: t.chromeLight || null,
+          chromeDark: t.chromeDark || null,
+          bgLight: t.bgLight || null,
+          bgDark: t.bgDark || null,
+          accent: t.accent || null,
+        },
+      };
+    }
+
+    let _prefsSaveTimer = null;
+    let _prefsLastSerialized = null;
+    function queueServerPrefsSave() {
+      if (!state.authenticated) return;
+      if (_prefsSaveTimer) clearTimeout(_prefsSaveTimer);
+      _prefsSaveTimer = setTimeout(async () => {
+        _prefsSaveTimer = null;
+        const prefs = snapshotSyncedPrefs();
+        const serialized = JSON.stringify(prefs);
+        if (serialized === _prefsLastSerialized) return;
+        try {
+          await api("/api/account/preferences", {
+            method: "PUT",
+            body: { prefs },
+          });
+          _prefsLastSerialized = serialized;
+        } catch (_) {
+          // Non-fatal — localStorage still holds the newest value.
+        }
+      }, 400);
+    }
+
+    async function loadServerPrefs() {
+      if (!state.authenticated) return;
+      let resp;
+      try {
+        resp = await api("/api/account/preferences");
+      } catch (_) {
+        return;
+      }
+      const prefs = resp && resp.prefs && typeof resp.prefs === "object" ? resp.prefs : null;
+      if (!prefs) return;
+      _prefsLastSerialized = JSON.stringify({
+        theme: prefs.theme,
+        density: prefs.density,
+        customTheme: prefs.customTheme,
+      });
+      if (prefs.theme === "light" || prefs.theme === "dark") {
+        document.documentElement.dataset.theme = prefs.theme;
+        try { localStorage.setItem("stockspace_theme", prefs.theme); } catch (_) {}
+      } else if (prefs.theme === "auto") {
+        delete document.documentElement.dataset.theme;
+        try { localStorage.setItem("stockspace_theme", "auto"); } catch (_) {}
+      }
+      if (prefs.density === "full" || prefs.density === "compact" || prefs.density === "grid") {
+        state.density = prefs.density;
+        try { localStorage.setItem("stockspace_density", state.density); } catch (_) {}
+      }
+      const ct = prefs.customTheme && typeof prefs.customTheme === "object" ? prefs.customTheme : null;
+      if (ct) {
+        state.customTheme.chromeLight = typeof ct.chromeLight === "string" ? ct.chromeLight : null;
+        state.customTheme.chromeDark = typeof ct.chromeDark === "string" ? ct.chromeDark : null;
+        state.customTheme.bgLight = typeof ct.bgLight === "string" ? ct.bgLight : null;
+        state.customTheme.bgDark = typeof ct.bgDark === "string" ? ct.bgDark : null;
+        state.customTheme.accent = typeof ct.accent === "string" ? ct.accent : null;
+        try { localStorage.setItem("stockspace_custom_theme", JSON.stringify(state.customTheme)); } catch (_) {}
+      }
+      applyCustomTheme();
     }
 
     // ---------- auth screens ----------

@@ -803,6 +803,64 @@ app.delete("/api/account/api-tokens/:id", async (c) => {
   return c.body(null, 204);
 });
 
+// ---------- Routes: account preferences ----------
+//
+// Small JSON blob per account for UI preferences the user shouldn't have
+// to re-pick on every device: theme (auto/light/dark), density, custom
+// chrome + bg colours + accent. The frontend sends and gets back the
+// same shape; the server is a dumb KV. Capped at 32 KB so a hostile or
+// buggy client can't bloat the row.
+
+const PREFS_MAX_BYTES = 32 * 1024;
+
+app.get("/api/account/preferences", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const row = await c.env.DB.prepare(
+    "SELECT prefs, updated_at FROM account_preferences WHERE account_id = ?",
+  )
+    .bind(session.account_id)
+    .first<{ prefs: string; updated_at: string }>();
+  if (!row) return c.json({ prefs: {}, updated_at: null });
+  try {
+    return c.json({ prefs: JSON.parse(row.prefs), updated_at: row.updated_at });
+  } catch (_) {
+    return c.json({ prefs: {}, updated_at: row.updated_at });
+  }
+});
+
+app.put("/api/account/preferences", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  const csrfErr = requireCsrf(c, session);
+  if (csrfErr) return csrfErr;
+  const body = await c.req.json<{ prefs?: unknown }>().catch(() => ({}));
+  const prefs = body && typeof body === "object" ? (body as any).prefs : null;
+  if (!prefs || typeof prefs !== "object" || Array.isArray(prefs)) {
+    return jsonError(c, 400, "bad_request", "prefs must be a JSON object");
+  }
+  const serialized = JSON.stringify(prefs);
+  if (serialized.length > PREFS_MAX_BYTES) {
+    return jsonError(
+      c,
+      413,
+      "payload_too_large",
+      `preferences blob exceeds ${PREFS_MAX_BYTES} bytes`,
+    );
+  }
+  const now = nowIso();
+  await c.env.DB.prepare(
+    `INSERT INTO account_preferences (account_id, prefs, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(account_id) DO UPDATE SET prefs = excluded.prefs, updated_at = excluded.updated_at`,
+  )
+    .bind(session.account_id, serialized, now)
+    .run();
+  return c.json({ prefs, updated_at: now });
+});
+
 // ---------- Routes: appliances ----------
 
 app.get("/api/appliances", async (c) => {
