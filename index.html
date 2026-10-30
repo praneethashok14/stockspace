@@ -52,11 +52,19 @@
       --radius: 18px;
       --radius-lg: 24px;
 
-      /* Glass FX */
-      --glass-blur: 22px;
-      --glass-sat: 1.4;
+      /* Glass FX (Apple Liquid Glass 2025) */
+      --glass-blur: 28px;
+      --glass-sat: 1.65;
+      --glass-displace: url(#liquidGlass);
+      --glass-displace-soft: url(#liquidGlassSoft);
       --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
       --glass-highlight-soft: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      /* Chromatic rim — subtle magenta on the left, cyan on the right,
+         emulating the sub-pixel refraction Apple's new material shows at
+         the border of each surface. */
+      --glass-chroma:
+        inset 1.5px 0 0 rgba(255, 90, 170, 0.14),
+        inset -1.5px 0 0 rgba(90, 170, 255, 0.14);
       --shadow: 0 10px 36px -16px rgba(16, 24, 40, 0.32), 0 2px 6px -2px rgba(16, 24, 40, 0.16);
       --shadow-lg: 0 24px 60px -24px rgba(16, 24, 40, 0.42), 0 6px 18px -8px rgba(16, 24, 40, 0.22);
     }
@@ -281,8 +289,8 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1.1rem;
-      box-shadow: var(--glass-highlight), var(--shadow);
-      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      box-shadow: var(--glass-highlight), var(--glass-chroma), var(--shadow);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) var(--glass-displace-soft);
       -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
       /* Spring-feel lift matching Framer whileHover={{y:-5}} from the reel. */
       transition: transform 260ms cubic-bezier(.2,.9,.3,1.2), box-shadow 260ms ease, border-color 180ms ease;
@@ -291,7 +299,7 @@
     .appliance-tile:hover:not(:disabled),
     .dash-stat-link:hover:not(:disabled) {
       transform: translateY(-5px);
-      box-shadow: var(--glass-highlight), var(--shadow-lg);
+      box-shadow: var(--glass-highlight), var(--glass-chroma), var(--shadow-lg);
       border-color: var(--border-strong);
     }
     @media (prefers-reduced-motion: reduce) {
@@ -357,9 +365,12 @@
          the rail picks up the same chrome tint seamlessly directly below.
          The soft outer shadow is the only visual separator from content. */
       background: color-mix(in srgb, var(--chrome) 42%, transparent);
-      backdrop-filter: blur(26px) saturate(1.5);
-      -webkit-backdrop-filter: blur(26px) saturate(1.5);
-      box-shadow: var(--glass-highlight), 0 10px 32px -24px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(28px) saturate(1.65) var(--glass-displace);
+      -webkit-backdrop-filter: blur(28px) saturate(1.65);
+      box-shadow:
+        var(--glass-highlight),
+        var(--glass-chroma),
+        0 10px 32px -24px rgba(0, 0, 0, 0.6);
       color: var(--chrome-text);
       position: sticky;
       top: 0;
@@ -694,9 +705,9 @@
       max-height: calc(100dvh - 2rem);
       overflow-y: auto;
       overscroll-behavior: contain;
-      box-shadow: var(--glass-highlight), var(--shadow-lg);
-      backdrop-filter: blur(28px) saturate(1.5);
-      -webkit-backdrop-filter: blur(28px) saturate(1.5);
+      box-shadow: var(--glass-highlight), var(--glass-chroma), var(--shadow-lg);
+      backdrop-filter: blur(32px) saturate(1.75) var(--glass-displace);
+      -webkit-backdrop-filter: blur(32px) saturate(1.75);
     }
     .dialog h2 { margin-top: 0; }
     .center-screen {
@@ -1130,11 +1141,12 @@
         max(0.5rem, env(safe-area-inset-left));
       background: color-mix(in srgb, var(--chrome) 42%, transparent);
       color: var(--chrome-text);
-      /* No border, no outer shadow — just the specular top highlight so
-         the join with the header shares one continuous chrome tint. */
-      box-shadow: var(--glass-highlight);
-      backdrop-filter: blur(26px) saturate(1.5);
-      -webkit-backdrop-filter: blur(26px) saturate(1.5);
+      /* No border, no outer shadow — just the specular top highlight +
+         chromatic rim so the join with the header shares one continuous
+         Apple-Liquid-Glass surface. */
+      box-shadow: var(--glass-highlight), var(--glass-chroma);
+      backdrop-filter: blur(28px) saturate(1.65) var(--glass-displace);
+      -webkit-backdrop-filter: blur(28px) saturate(1.65);
       z-index: 40;
     }
     @media (min-width: 760px) {
@@ -1301,6 +1313,36 @@
   </style>
 </head>
 <body>
+  <!--
+    Apple-Liquid-Glass-2025 displacement filter. feTurbulence builds a soft
+    low-frequency noise field and feDisplacementMap uses it to warp whatever
+    is behind the glass by up to ~scale/2 pixels per axis. Chained onto
+    backdrop-filter it produces the signature "looking through a bubble of
+    chilled oil" refraction. Browsers that don't yet support url() inside
+    backdrop-filter (older Firefox) simply ignore it and get the plain blur.
+  -->
+  <svg aria-hidden="true" focusable="false"
+       style="position:fixed;width:0;height:0;pointer-events:none;overflow:hidden"
+       xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="liquidGlass" x="-5%" y="-5%" width="110%" height="110%"
+              color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.016"
+                      numOctaves="2" seed="7" result="turb"/>
+        <feGaussianBlur in="turb" stdDeviation="1.4" result="softTurb"/>
+        <feDisplacementMap in="SourceGraphic" in2="softTurb" scale="48"
+                           xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+      <filter id="liquidGlassSoft" x="-5%" y="-5%" width="110%" height="110%"
+              color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.018 0.022"
+                      numOctaves="2" seed="3" result="turb"/>
+        <feGaussianBlur in="turb" stdDeviation="1" result="softTurb"/>
+        <feDisplacementMap in="SourceGraphic" in2="softTurb" scale="24"
+                           xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
   <div class="layout" id="root">
     <div aria-live="polite" aria-atomic="true" class="sr-only" id="live"></div>
     <!-- header + main injected by render() -->
