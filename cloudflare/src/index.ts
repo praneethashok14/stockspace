@@ -3398,6 +3398,41 @@ const MCP_TOOLS: McpTool[] = [
     },
   },
   {
+    name: "add_appliance",
+    description:
+      "Create a new appliance (fridge, freezer, shelf, or other storage). Family members who aren't owners can't do this.",
+    inputSchema: {
+      type: "object",
+      required: ["name", "kind"],
+      properties: {
+        name: { type: "string" },
+        kind: { type: "string", enum: ["fridge", "freezer", "shelf", "other"] },
+        location: { type: ["string", "null"], description: "e.g. Kitchen, Garage" },
+        description: { type: ["string", "null"] },
+      },
+    },
+    handler: async (args, ctx) => {
+      if (!validItemName(args.name)) throw new HttpErr(400, "name is required");
+      if (!["fridge", "freezer", "shelf", "other"].includes(String(args.kind))) {
+        throw new HttpErr(400, "kind must be fridge, freezer, shelf, or other");
+      }
+      assertOwnerIfInFamily(await getFamilyInfo(ctx.env, ctx.callerAccountId));
+      const appliance: Appliance = {
+        id: newId(),
+        name: String(args.name).trim(),
+        kind: args.kind as Kind,
+        location: blankToNull(args.location),
+        description: blankToNull(args.description),
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      };
+      return mutateInventory(ctx.env, ctx.callerAccountId, (inv) => {
+        inv.appliances.push(appliance);
+        return appliance;
+      });
+    },
+  },
+  {
     name: "add_group",
     description:
       "Create a new group inside an appliance. Optionally nested under an existing group in the same appliance.",

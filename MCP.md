@@ -48,6 +48,7 @@ token → Save.
 | `adjust_quantity`  | ±N quantity / pack_count                                          |
 | `update_item`      | Patch one or more mutable fields                                  |
 | `delete_item`      | Permanently delete the item + its photo                           |
+| `add_appliance`    | Create a fridge/freezer/shelf/other (family owners only)          |
 | `add_group`        | Create a group, optionally nested under another                   |
 | `assign_group`     | Move an item to another group, or ungroup                         |
 | `open_pack`        | Mark a pack item opened (scope: `one` or `all`)                   |
