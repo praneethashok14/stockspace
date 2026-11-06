@@ -2680,18 +2680,23 @@ async function renderAuthorize(
   if ("error" in client) return new Response(client.error, { status: 400 });
 
   // Signed-in? If yes, render approval screen. Otherwise, the mini login form.
+  //
+  // IMPORTANT: use c.html() rather than `new Response(html, ...)`. Hono's
+  // setCookie() attaches Set-Cookie to the context's response; if we build
+  // a brand-new Response we drop that header, so the session cookie minted
+  // in /mcp/oauth/login never reaches the browser and the Allow POST comes
+  // back with no cookie.
   const sid = getCookie(c, SESSION_COOKIE);
   const session = sid ? await loadSession(c.env, sid) : null;
   if (!session) {
-    return new Response(
+    return c.html(
       oauthConsentPage({ mode: "login", clientName: client.name, params, error }),
-      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
     );
   }
   const acc = (await c.env.DB.prepare("SELECT name FROM accounts WHERE id = ?")
     .bind(session.account_id)
     .first()) as { name: string } | null;
-  return new Response(
+  return c.html(
     oauthConsentPage({
       mode: "approve",
       clientName: client.name,
@@ -2699,7 +2704,6 @@ async function renderAuthorize(
       params,
       error,
     }),
-    { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
   );
 }
 
