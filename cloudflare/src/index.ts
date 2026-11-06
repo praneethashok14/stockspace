@@ -2595,6 +2595,7 @@ function oauthConsentPage(opts: {
     <p class="muted">It will be able to list appliances, groups, items, and tags, and add / edit / remove items and groups. Revoke anytime from Settings → API tokens.</p>
     ${hidden}
     <div class="actions">
+      <button type="submit" name="decision" value="switch" class="ghost">Change user</button>
       <button type="submit" name="decision" value="deny">Deny</button>
       <button type="submit" name="decision" value="allow" class="primary">Allow</button>
     </div>
@@ -2618,7 +2619,9 @@ function oauthConsentPage(opts: {
     input { width: 100%; padding: 10px 12px; margin-top: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--fg); box-sizing: border-box; font: inherit; }
     button { padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--fg); font: inherit; cursor: pointer; }
     button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-    .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    button.ghost { background: transparent; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    .actions button.ghost { margin-right: auto; }
     .muted { color: var(--muted); font-size: 0.85rem; }
     .error { color: #b91c1c; margin-top: 8px; }
     .brand { font-weight: 700; letter-spacing: -0.01em; margin-bottom: 4px; }
@@ -2747,6 +2750,16 @@ app.post("/mcp/oauth/authorize", async (c) => {
   }
   const sid = getCookie(c, SESSION_COOKIE);
   const session = sid ? await loadSession(c.env, sid) : null;
+
+  // "Change user" from the approve screen: wipe the current session + cookie,
+  // then re-render the authorize endpoint — which, with no session, shows
+  // the sign-in form for a different account.
+  if (decision === "switch") {
+    if (sid) await revokeSession(c.env, sid);
+    clearSessionCookie(c);
+    return renderAuthorize(c, params);
+  }
+
   if (!session) return renderAuthorize(c, params, "Session expired — sign in again");
 
   const client = await loadOAuthClient(c.env, client_id, redirect_uri);
