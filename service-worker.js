@@ -9,7 +9,7 @@
 // Spec references: README/10-PWA-INSTALLATION.md and
 // README/11-PIN-ACCESS-AND-SECURITY.md.
 
-const CACHE_VERSION = "stockspace-shell-v2.27";
+const CACHE_VERSION = "stockspace-shell-v2.28";
 const SHELL = [
   "/",
   "/index.html",
@@ -48,6 +48,18 @@ self.addEventListener("fetch", (event) => {
   // Private API responses MUST bypass the cache entirely. We also refuse to
   // store any response from /api/*, even if the browser attempted to.
   if (url.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(req));
+    return;
+  }
+
+  // OAuth / MCP / well-known endpoints are not app shell — they're dynamic
+  // responses the server mints on the fly. Caching them would break the
+  // authorize flow (stale consent form, wrong state param) and serve stale
+  // tokens. Bypass the cache entirely.
+  if (
+    url.pathname.startsWith("/mcp") ||
+    url.pathname.startsWith("/.well-known/")
+  ) {
     event.respondWith(fetch(req));
     return;
   }
