@@ -108,3 +108,52 @@ CREATE TABLE IF NOT EXISTS account_preferences (
   updated_at  TEXT NOT NULL,
   FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 );
+
+-- OAuth 2.1 server state (so Claude.ai and other OAuth-only MCP clients
+-- can connect). Static API tokens in api_tokens keep working — this is
+-- additive. See MCP.md for the overall flow.
+--
+-- Clients register dynamically (RFC 7591); we never ship pre-set client
+-- IDs. The secret is hashed the same way api_tokens are.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  id                   TEXT PRIMARY KEY,
+  client_secret_hash   TEXT NOT NULL,
+  name                 TEXT NOT NULL,
+  redirect_uris        TEXT NOT NULL,  -- JSON array of allowed redirect URIs
+  created_at           TEXT NOT NULL
+);
+
+-- One-time authorization codes handed out at /mcp/oauth/authorize and
+-- consumed at /mcp/oauth/token. Code + PKCE challenge bind the whole
+-- flow together so a stolen code is useless without the verifier.
+CREATE TABLE IF NOT EXISTS oauth_auth_codes (
+  code                   TEXT PRIMARY KEY,
+  client_id              TEXT NOT NULL,
+  account_id             TEXT NOT NULL,
+  redirect_uri           TEXT NOT NULL,
+  code_challenge         TEXT NOT NULL,
+  code_challenge_method  TEXT NOT NULL,  -- always "S256"
+  scope                  TEXT,
+  created_at             TEXT NOT NULL,
+  expires_at             TEXT NOT NULL,  -- 10 minutes after creation
+  FOREIGN KEY (client_id) REFERENCES oauth_clients(id) ON DELETE CASCADE,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+
+-- Issued access tokens. Lookup is by sha256(plaintext) exactly like
+-- api_tokens, so requireAuth can check both tables for one query each.
+CREATE TABLE IF NOT EXISTS oauth_access_tokens (
+  token_hash   TEXT PRIMARY KEY,
+  token_prefix TEXT NOT NULL,
+  client_id    TEXT NOT NULL,
+  account_id   TEXT NOT NULL,
+  scope        TEXT,
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  FOREIGN KEY (client_id) REFERENCES oauth_clients(id) ON DELETE CASCADE,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_account
+  ON oauth_access_tokens(account_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_expires
+  ON oauth_access_tokens(expires_at);

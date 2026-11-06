@@ -209,27 +209,44 @@ async function revokeSession(env: Env, id: string): Promise<void> {
 
 async function requireAuth(c: any): Promise<Response | null> {
   // Bearer token takes precedence (used by the Home Assistant
-  // integration and any other API client). CSRF is skipped on these
-  // requests because the token itself is the secret.
+  // integration, Claude Desktop/Code via static tokens, and OAuth
+  // clients once they've completed the authorize dance). CSRF is
+  // skipped on these requests because the token itself is the secret.
   const authHeader = c.req.header("authorization") || c.req.header("Authorization");
   if (authHeader && /^Bearer\s+/i.test(authHeader)) {
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-    const row = await verifyApiToken(c.env, token);
-    if (!row) return jsonError(c, 401, "unauthorized", "invalid API token");
-    c.set("session", {
-      account_id: row.account_id,
-      csrf: "",
-      created_at: Date.now(),
-      api_token_id: row.id,
-    } satisfies Session);
-    // Fire-and-forget last_used_at update; failures must not block the request.
-    c.executionCtx?.waitUntil?.(
-      c.env.DB.prepare("UPDATE api_tokens SET last_used_at = ? WHERE id = ?")
-        .bind(nowIso(), row.id)
-        .run()
-        .catch(() => {}),
-    );
-    return null;
+    // Try static API tokens first (prefix ss_), then OAuth access tokens
+    // (prefix ssoa_). Both store sha256(plaintext) so the lookup is one
+    // query each. In the common case only the matching table is hit.
+    if (token.startsWith("ss_")) {
+      const row = await verifyApiToken(c.env, token);
+      if (!row) return jsonError(c, 401, "unauthorized", "invalid API token");
+      c.set("session", {
+        account_id: row.account_id,
+        csrf: "",
+        created_at: Date.now(),
+        api_token_id: row.id,
+      } satisfies Session);
+      c.executionCtx?.waitUntil?.(
+        c.env.DB.prepare("UPDATE api_tokens SET last_used_at = ? WHERE id = ?")
+          .bind(nowIso(), row.id)
+          .run()
+          .catch(() => {}),
+      );
+      return null;
+    }
+    if (token.startsWith("ssoa_")) {
+      const oauth = await verifyOAuthAccessToken(c.env, token);
+      if (!oauth) return jsonError(c, 401, "unauthorized", "invalid or expired access token");
+      c.set("session", {
+        account_id: oauth.account_id,
+        csrf: "",
+        created_at: Date.now(),
+        api_token_id: "oauth:" + oauth.client_id,
+      } satisfies Session);
+      return null;
+    }
+    return jsonError(c, 401, "unauthorized", "unrecognised token prefix");
   }
   const id = getCookie(c, SESSION_COOKIE);
   if (!id) return jsonError(c, 401, "unauthorized", "authentication required");
@@ -2373,6 +2390,510 @@ async function maybeDissolveFamily(env: Env, familyId: string): Promise<void> {
   }
 }
 
+// ---------- OAuth 2.1 server (for Claude.ai / OAuth-only MCP clients) ----------
+//
+// Optional authentication path alongside static API tokens. Claude Desktop,
+// Claude Code, Home Assistant, and curl all keep using static tokens; this
+// layer only runs when something calls /.well-known/oauth-* or /mcp/oauth/*.
+//
+// Flow:
+//   1. Client discovers metadata via /.well-known/oauth-protected-resource
+//      (links to /.well-known/oauth-authorization-server).
+//   2. Client registers via POST /mcp/oauth/register (RFC 7591 DCR).
+//   3. Client redirects user to GET /mcp/oauth/authorize?... with PKCE.
+//   4. Consent page: if the user isn't signed in to StockSpace it offers
+//      a mini sign-in form; once signed in it shows the "Allow / Deny"
+//      choice, then POSTs the decision back to /mcp/oauth/authorize.
+//   5. Server redirects back to the client's redirect_uri with ?code=....
+//   6. Client POSTs to /mcp/oauth/token with code + code_verifier.
+//   7. Server validates PKCE, issues a 30-day access token (prefix "ssoa_"),
+//      which the client then uses on /mcp like any other bearer.
+
+const OAUTH_AUTH_CODE_TTL_MS = 10 * 60 * 1000;            // 10 minutes
+const OAUTH_ACCESS_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+interface OAuthAccessTokenRow {
+  token_hash: string;
+  token_prefix: string;
+  client_id: string;
+  account_id: string;
+  scope: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+async function verifyOAuthAccessToken(
+  env: Env,
+  plaintext: string,
+): Promise<OAuthAccessTokenRow | null> {
+  if (!plaintext || plaintext.length < 20 || plaintext.length > 200) return null;
+  const hash = await hashApiToken(plaintext);
+  const row = await env.DB.prepare(
+    "SELECT token_hash, token_prefix, client_id, account_id, scope, created_at, expires_at " +
+      "FROM oauth_access_tokens WHERE token_hash = ?",
+  )
+    .bind(hash)
+    .first<OAuthAccessTokenRow>();
+  if (!row) return null;
+  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  return row;
+}
+
+function randomUrlSafeToken(byteLen: number): string {
+  const buf = new Uint8Array(byteLen);
+  crypto.getRandomValues(buf);
+  return btoa(String.fromCharCode(...buf))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+async function sha256Base64Url(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function originOf(c: any): string {
+  const url = new URL(c.req.url);
+  return url.origin;
+}
+
+// RFC 9728: protected resource metadata. Points clients at the auth server.
+app.get("/.well-known/oauth-protected-resource", (c) => {
+  const origin = originOf(c);
+  return c.json({
+    resource: `${origin}/mcp`,
+    authorization_servers: [origin],
+    bearer_methods_supported: ["header"],
+    resource_documentation: `${origin}/MCP.md`,
+  });
+});
+// Per-resource variant some MCP clients fetch instead.
+app.get("/.well-known/oauth-protected-resource/mcp", (c) => {
+  const origin = originOf(c);
+  return c.json({
+    resource: `${origin}/mcp`,
+    authorization_servers: [origin],
+    bearer_methods_supported: ["header"],
+  });
+});
+
+// RFC 8414: authorization server metadata.
+app.get("/.well-known/oauth-authorization-server", (c) => {
+  const origin = originOf(c);
+  return c.json({
+    issuer: origin,
+    authorization_endpoint: `${origin}/mcp/oauth/authorize`,
+    token_endpoint: `${origin}/mcp/oauth/token`,
+    registration_endpoint: `${origin}/mcp/oauth/register`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic", "none"],
+    scopes_supported: ["mcp"],
+  });
+});
+
+// RFC 7591: Dynamic Client Registration.
+app.post("/mcp/oauth/register", async (c) => {
+  const body = await c.req.json<any>().catch(() => ({}));
+  const redirect_uris = Array.isArray(body?.redirect_uris)
+    ? body.redirect_uris.filter((u: unknown) => typeof u === "string" && u.length < 2048)
+    : [];
+  if (redirect_uris.length === 0) {
+    return jsonError(c, 400, "bad_request", "redirect_uris is required");
+  }
+  // All URIs must be https (or localhost for development).
+  for (const uri of redirect_uris) {
+    try {
+      const u = new URL(uri);
+      if (u.protocol !== "https:" && u.hostname !== "localhost" && u.hostname !== "127.0.0.1") {
+        return jsonError(c, 400, "invalid_redirect_uri", `redirect_uri must be https: ${uri}`);
+      }
+    } catch (_) {
+      return jsonError(c, 400, "invalid_redirect_uri", `redirect_uri must be a URL: ${uri}`);
+    }
+  }
+  const name = typeof body?.client_name === "string" && body.client_name.length < 200
+    ? body.client_name
+    : "OAuth client";
+  const id = "sscli_" + randomUrlSafeToken(16);
+  const secret = randomUrlSafeToken(32);
+  const secretHash = await hashApiToken(secret);
+  const now = nowIso();
+  await c.env.DB.prepare(
+    "INSERT INTO oauth_clients (id, client_secret_hash, name, redirect_uris, created_at) " +
+      "VALUES (?, ?, ?, ?, ?)",
+  )
+    .bind(id, secretHash, name, JSON.stringify(redirect_uris), now)
+    .run();
+  return c.json({
+    client_id: id,
+    client_secret: secret,
+    client_id_issued_at: Math.floor(Date.now() / 1000),
+    client_secret_expires_at: 0, // never
+    redirect_uris,
+    client_name: name,
+    token_endpoint_auth_method: "client_secret_post",
+    grant_types: ["authorization_code"],
+    response_types: ["code"],
+  }, 201);
+});
+
+// Small helper: look up and validate a client + redirect_uri.
+async function loadOAuthClient(
+  env: Env,
+  clientId: string,
+  redirectUri: string,
+): Promise<{ id: string; name: string } | { error: string }> {
+  if (!clientId) return { error: "client_id is required" };
+  const row = await env.DB.prepare(
+    "SELECT id, name, redirect_uris FROM oauth_clients WHERE id = ?",
+  )
+    .bind(clientId)
+    .first<{ id: string; name: string; redirect_uris: string }>();
+  if (!row) return { error: "unknown client_id" };
+  let allowed: string[] = [];
+  try {
+    allowed = JSON.parse(row.redirect_uris);
+  } catch (_) {
+    return { error: "client has no valid redirect_uris" };
+  }
+  if (!allowed.includes(redirectUri)) {
+    return { error: "redirect_uri not registered for this client" };
+  }
+  return { id: row.id, name: row.name };
+}
+
+function oauthConsentPage(opts: {
+  mode: "login" | "approve";
+  clientName: string;
+  accountName?: string;
+  params: Record<string, string>;
+  error?: string;
+}): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const hidden = Object.entries(opts.params)
+    .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`)
+    .join("");
+  const formBody =
+    opts.mode === "login"
+      ? `
+    <p>Sign in to StockSpace to continue.</p>
+    <label>Account name <input name="name" autocomplete="username" required></label>
+    <label>PIN <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required></label>
+    ${hidden}
+    <button type="submit" class="primary">Sign in</button>
+  `
+      : `
+    <p><strong>${esc(opts.clientName)}</strong> wants to read and change your StockSpace inventory on behalf of <strong>${esc(opts.accountName || "")}</strong>.</p>
+    <p class="muted">It will be able to list appliances, groups, items, and tags, and add / edit / remove items and groups. Revoke anytime from Settings → API tokens.</p>
+    ${hidden}
+    <div class="actions">
+      <button type="submit" name="decision" value="deny">Deny</button>
+      <button type="submit" name="decision" value="allow" class="primary">Allow</button>
+    </div>
+  `;
+  const action = opts.mode === "login" ? "/mcp/oauth/login" : "/mcp/oauth/authorize";
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Authorize — StockSpace</title>
+  <style>
+    :root { color-scheme: light dark; --fg:#11182c; --muted:#6b7280; --bg:#f4f2ee; --card:#fff; --border:#d9dee9; --accent:#2563eb; --accent-fg:#fff; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg:#e8ecf7; --muted:#9aa3bd; --bg:#0a0d18; --card:#141a2d; --border:#2a3457; }
+    }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 15px/1.5 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); padding: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; max-width: 420px; width: 100%; box-shadow: 0 10px 36px -16px rgba(16,24,40,.3); }
+    h1 { margin: 0 0 12px; font-size: 1.3rem; }
+    label { display: block; margin: 12px 0; font-size: 0.9rem; }
+    input { width: 100%; padding: 10px 12px; margin-top: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--fg); box-sizing: border-box; font: inherit; }
+    button { padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--fg); font: inherit; cursor: pointer; }
+    button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+    .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    .error { color: #b91c1c; margin-top: 8px; }
+    .brand { font-weight: 700; letter-spacing: -0.01em; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">StockSpace</div>
+    <h1>Authorize ${esc(opts.clientName)}</h1>
+    <form method="POST" action="${action}">
+      ${formBody}
+    </form>
+    ${opts.error ? `<p class="error">${esc(opts.error)}</p>` : ""}
+  </main>
+</body>
+</html>`;
+}
+
+// Carry the authorize params from one step to the next without query-stringing
+// them repeatedly; they ride along in hidden form fields.
+function collectAuthorizeParams(q: URLSearchParams | FormData): Record<string, string> {
+  const out: Record<string, string> = {};
+  const pick = (k: string) => {
+    const v = q.get(k);
+    if (typeof v === "string") out[k] = v;
+  };
+  pick("response_type");
+  pick("client_id");
+  pick("redirect_uri");
+  pick("code_challenge");
+  pick("code_challenge_method");
+  pick("state");
+  pick("scope");
+  return out;
+}
+
+async function renderAuthorize(
+  c: any,
+  params: Record<string, string>,
+  error?: string,
+): Promise<Response> {
+  // Validate mandatory params
+  const response_type = params.response_type;
+  const client_id = params.client_id;
+  const redirect_uri = params.redirect_uri;
+  const code_challenge = params.code_challenge;
+  const code_challenge_method = params.code_challenge_method;
+
+  if (response_type !== "code") {
+    return new Response("response_type must be 'code'", { status: 400 });
+  }
+  if (!code_challenge || code_challenge_method !== "S256") {
+    return new Response("PKCE with S256 is required", { status: 400 });
+  }
+  if (!client_id || !redirect_uri) {
+    return new Response("client_id and redirect_uri are required", { status: 400 });
+  }
+  const client = await loadOAuthClient(c.env, client_id, redirect_uri);
+  if ("error" in client) return new Response(client.error, { status: 400 });
+
+  // Signed-in? If yes, render approval screen. Otherwise, the mini login form.
+  const sid = getCookie(c, SESSION_COOKIE);
+  const session = sid ? await loadSession(c.env, sid) : null;
+  if (!session) {
+    return new Response(
+      oauthConsentPage({ mode: "login", clientName: client.name, params, error }),
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    );
+  }
+  const acc = (await c.env.DB.prepare("SELECT name FROM accounts WHERE id = ?")
+    .bind(session.account_id)
+    .first()) as { name: string } | null;
+  return new Response(
+    oauthConsentPage({
+      mode: "approve",
+      clientName: client.name,
+      accountName: acc?.name ?? "",
+      params,
+      error,
+    }),
+    { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+  );
+}
+
+app.get("/mcp/oauth/authorize", async (c) => {
+  const q = new URL(c.req.url).searchParams;
+  const params = collectAuthorizeParams(q);
+  return renderAuthorize(c, params);
+});
+
+// Mini login inside the consent flow — same PIN/name as the main app,
+// but we set the session cookie here and re-render the consent page.
+app.post("/mcp/oauth/login", async (c) => {
+  const form = await c.req.formData();
+  const name = String(form.get("name") ?? "").trim();
+  const pin = String(form.get("pin") ?? "");
+  const params = collectAuthorizeParams(form);
+  if (!name || !pin) return renderAuthorize(c, params, "Name and PIN are required");
+  const acc = await c.env.DB.prepare(
+    "SELECT id, name, pin_hash FROM accounts WHERE name_lower = ?",
+  )
+    .bind(name.toLowerCase())
+    .first<{ id: string; name: string; pin_hash: string }>();
+  if (!acc) return renderAuthorize(c, params, "Account not found");
+  const ok = await verifyPin(pin, acc.pin_hash);
+  if (!ok) return renderAuthorize(c, params, "Incorrect PIN");
+  const { id: sid } = await createSession(c.env, acc.id);
+  setSessionCookie(c, sid, c.env);
+  return renderAuthorize(c, params);
+});
+
+// Allow / Deny submission. On allow we mint a code + redirect to the client.
+app.post("/mcp/oauth/authorize", async (c) => {
+  const form = await c.req.formData();
+  const decision = String(form.get("decision") ?? "");
+  const params = collectAuthorizeParams(form);
+  const redirect_uri = params.redirect_uri;
+  const client_id = params.client_id;
+  const state = params.state || "";
+  if (!redirect_uri || !client_id) {
+    return new Response("missing redirect_uri or client_id", { status: 400 });
+  }
+  const sid = getCookie(c, SESSION_COOKIE);
+  const session = sid ? await loadSession(c.env, sid) : null;
+  if (!session) return renderAuthorize(c, params, "Session expired — sign in again");
+
+  const client = await loadOAuthClient(c.env, client_id, redirect_uri);
+  if ("error" in client) return new Response(client.error, { status: 400 });
+
+  const sep = redirect_uri.includes("?") ? "&" : "?";
+  if (decision !== "allow") {
+    const back =
+      redirect_uri + sep + "error=access_denied" + (state ? "&state=" + encodeURIComponent(state) : "");
+    return Response.redirect(back, 302);
+  }
+
+  const code = "sscode_" + randomUrlSafeToken(24);
+  const now = Date.now();
+  await c.env.DB.prepare(
+    "INSERT INTO oauth_auth_codes (code, client_id, account_id, redirect_uri, code_challenge, code_challenge_method, scope, created_at, expires_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  )
+    .bind(
+      code,
+      client_id,
+      session.account_id,
+      redirect_uri,
+      params.code_challenge,
+      params.code_challenge_method,
+      params.scope || null,
+      new Date(now).toISOString(),
+      new Date(now + OAUTH_AUTH_CODE_TTL_MS).toISOString(),
+    )
+    .run();
+
+  const back =
+    redirect_uri +
+    sep +
+    "code=" +
+    encodeURIComponent(code) +
+    (state ? "&state=" + encodeURIComponent(state) : "");
+  return Response.redirect(back, 302);
+});
+
+// Token exchange. Validates PKCE + consumes the single-use code.
+app.post("/mcp/oauth/token", async (c) => {
+  // Accept both form-encoded (per RFC 6749) and JSON bodies.
+  let body: Record<string, string> = {};
+  const ct = c.req.header("content-type") || "";
+  if (ct.includes("application/x-www-form-urlencoded") || ct.includes("multipart/form-data")) {
+    const form = await c.req.formData();
+    form.forEach((v: FormDataEntryValue, k: string) => { body[k] = String(v); });
+  } else {
+    try {
+      body = (await c.req.json<Record<string, string>>()) ?? {};
+    } catch (_) {
+      body = {};
+    }
+  }
+  // Basic-auth client credentials, when provided.
+  const authHeader = c.req.header("authorization") || "";
+  if (/^Basic\s+/i.test(authHeader) && !body.client_id) {
+    try {
+      const decoded = atob(authHeader.replace(/^Basic\s+/i, "").trim());
+      const idx = decoded.indexOf(":");
+      if (idx > 0) {
+        body.client_id = decoded.slice(0, idx);
+        body.client_secret = decoded.slice(idx + 1);
+      }
+    } catch (_) {}
+  }
+
+  if (body.grant_type !== "authorization_code") {
+    return c.json({ error: "unsupported_grant_type" }, 400);
+  }
+  const { code, client_id, redirect_uri, code_verifier, client_secret } = body;
+  if (!code || !client_id || !redirect_uri || !code_verifier) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+
+  // Verify the client — secret is required for clients that registered
+  // one (all of them, in our flow).
+  const clientRow = await c.env.DB.prepare(
+    "SELECT id, client_secret_hash, redirect_uris, name FROM oauth_clients WHERE id = ?",
+  )
+    .bind(client_id)
+    .first<{ id: string; client_secret_hash: string; redirect_uris: string; name: string }>();
+  if (!clientRow) return c.json({ error: "invalid_client" }, 401);
+  if (client_secret) {
+    const got = await hashApiToken(client_secret);
+    if (!constantTimeEq(got, clientRow.client_secret_hash)) {
+      return c.json({ error: "invalid_client" }, 401);
+    }
+  }
+
+  // Load + consume the auth code.
+  const codeRow = await c.env.DB.prepare(
+    "SELECT code, client_id, account_id, redirect_uri, code_challenge, code_challenge_method, scope, expires_at " +
+      "FROM oauth_auth_codes WHERE code = ?",
+  )
+    .bind(code)
+    .first<{
+      code: string;
+      client_id: string;
+      account_id: string;
+      redirect_uri: string;
+      code_challenge: string;
+      code_challenge_method: string;
+      scope: string | null;
+      expires_at: string;
+    }>();
+  if (!codeRow) return c.json({ error: "invalid_grant", error_description: "unknown code" }, 400);
+  // Single-use: delete even on failure, so a leaked code can't be replayed.
+  await c.env.DB.prepare("DELETE FROM oauth_auth_codes WHERE code = ?").bind(code).run();
+  if (codeRow.client_id !== client_id)
+    return c.json({ error: "invalid_grant", error_description: "client mismatch" }, 400);
+  if (codeRow.redirect_uri !== redirect_uri)
+    return c.json({ error: "invalid_grant", error_description: "redirect_uri mismatch" }, 400);
+  if (new Date(codeRow.expires_at).getTime() < Date.now())
+    return c.json({ error: "invalid_grant", error_description: "code expired" }, 400);
+
+  // PKCE: challenge == base64url(sha256(verifier))
+  const expectedChallenge = await sha256Base64Url(code_verifier);
+  if (!constantTimeEq(expectedChallenge, codeRow.code_challenge)) {
+    return c.json({ error: "invalid_grant", error_description: "PKCE verification failed" }, 400);
+  }
+
+  // Mint an access token.
+  const token = "ssoa_" + randomUrlSafeToken(32);
+  const tokenHash = await hashApiToken(token);
+  const now = Date.now();
+  const expires = new Date(now + OAUTH_ACCESS_TOKEN_TTL_MS).toISOString();
+  await c.env.DB.prepare(
+    "INSERT INTO oauth_access_tokens (token_hash, token_prefix, client_id, account_id, scope, created_at, expires_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?)",
+  )
+    .bind(
+      tokenHash,
+      token.slice(0, 10),
+      client_id,
+      codeRow.account_id,
+      codeRow.scope,
+      new Date(now).toISOString(),
+      expires,
+    )
+    .run();
+
+  return c.json({
+    access_token: token,
+    token_type: "Bearer",
+    expires_in: Math.floor(OAUTH_ACCESS_TOKEN_TTL_MS / 1000),
+    scope: codeRow.scope ?? "mcp",
+  });
+});
+
 // ---------- MCP (Model Context Protocol) server ----------
 //
 // Exposes the authenticated account's inventory to MCP clients (Claude
@@ -3024,7 +3545,17 @@ async function handleMcpMessage(msg: JsonRpcReq, ctx: McpCtx): Promise<any | nul
 
 app.post("/mcp", async (c) => {
   const err = await requireAuth(c);
-  if (err) return err;
+  if (err) {
+    // Advertise the authorization server so OAuth-capable clients can
+    // discover us from a cold 401 (RFC 9728 / RFC 6750 WWW-Authenticate).
+    const origin = originOf(c);
+    const resp = new Response(err.clone().body, { status: err.status, headers: err.headers });
+    resp.headers.set(
+      "WWW-Authenticate",
+      `Bearer realm="stockspace", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+    );
+    return resp;
+  }
   const session = c.get("session")!;
   // CSRF is skipped for bearer-token auth by requireCsrf(), but /mcp is
   // bearer-only — return 403 if someone hits it with just a cookie.
