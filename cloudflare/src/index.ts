@@ -3018,7 +3018,124 @@ async function createItemCore(
   });
 }
 
+// Read tools. MCP has a dedicated resources/* surface for this, which
+// Claude Desktop and Claude Code expose to the model — but Claude.ai
+// connectors only enumerate tools, so these wrap the same data as
+// tool calls. The returned JSON is identical to the resource contents.
+async function mcpListRead(
+  ctx: McpCtx,
+  filter: "all" | "low" | "expiring",
+  applianceId?: string,
+): Promise<any> {
+  const merged = await getMergedInventory(ctx.env, ctx.callerAccountId);
+  let items = merged.items;
+  if (applianceId) items = items.filter((i) => i.appliance_id === applianceId);
+  if (filter === "low") {
+    items = items.filter((i) => {
+      const t = (i as any).low_threshold ?? 0;
+      if (!(t > 0)) return false;
+      if (i.tracking === "pack") return i.pack_count <= t;
+      return i.quantity <= t;
+    });
+  } else if (filter === "expiring") {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const soon = new Date(today);
+    soon.setDate(soon.getDate() + 7);
+    const soonStr = soon.toISOString().slice(0, 10);
+    const todayStr = today.toISOString().slice(0, 10);
+    items = items
+      .filter((i) => i.expiration_date && i.expiration_date <= soonStr)
+      .map((i) => ({
+        ...i,
+        _expiration_state:
+          i.expiration_date && i.expiration_date < todayStr ? "expired" : "soon",
+      })) as any;
+  }
+  return items;
+}
+
 const MCP_TOOLS: McpTool[] = [
+  {
+    name: "list_appliances",
+    description:
+      "List every appliance (fridge, freezer, shelf, etc.) in the authenticated account.",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_args, ctx) => {
+      const merged = await getMergedInventory(ctx.env, ctx.callerAccountId);
+      return merged.appliances;
+    },
+  },
+  {
+    name: "list_groups",
+    description:
+      "List every group across all appliances. Each has a parent_group_id for nesting. Pass appliance_id to filter.",
+    inputSchema: {
+      type: "object",
+      properties: { appliance_id: { type: "string" } },
+    },
+    handler: async (args, ctx) => {
+      const merged = await getMergedInventory(ctx.env, ctx.callerAccountId);
+      if (args?.appliance_id) {
+        return merged.groups.filter((g) => g.appliance_id === args.appliance_id);
+      }
+      return merged.groups;
+    },
+  },
+  {
+    name: "list_items",
+    description:
+      "List items. Optionally filter by appliance_id (the stockspace appliance id, not the name).",
+    inputSchema: {
+      type: "object",
+      properties: { appliance_id: { type: "string" } },
+    },
+    handler: (args, ctx) => mcpListRead(ctx, "all", args?.appliance_id),
+  },
+  {
+    name: "get_item",
+    description: "Fetch a single item with all fields by its id.",
+    inputSchema: {
+      type: "object",
+      required: ["item_id"],
+      properties: { item_id: { type: "string" } },
+    },
+    handler: async (args, ctx) => {
+      const merged = await getMergedInventory(ctx.env, ctx.callerAccountId);
+      const it = merged.items.find((i) => i.id === args.item_id);
+      if (!it) throw new HttpErr(404, `item ${args.item_id} not found`);
+      return it;
+    },
+  },
+  {
+    name: "list_low_stock",
+    description:
+      "List items at or below their low_threshold alert level (the 'running low' list).",
+    inputSchema: {
+      type: "object",
+      properties: { appliance_id: { type: "string" } },
+    },
+    handler: (args, ctx) => mcpListRead(ctx, "low", args?.appliance_id),
+  },
+  {
+    name: "list_expiring_soon",
+    description:
+      "List items that are expired or will expire within the next 7 days. Each has _expiration_state: 'expired' or 'soon'.",
+    inputSchema: {
+      type: "object",
+      properties: { appliance_id: { type: "string" } },
+    },
+    handler: (args, ctx) => mcpListRead(ctx, "expiring", args?.appliance_id),
+  },
+  {
+    name: "list_tags",
+    description: "List every tag defined on the account.",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_args, ctx) => {
+      const merged = await getMergedInventory(ctx.env, ctx.callerAccountId);
+      return merged.tags ?? [];
+    },
+  },
   {
     name: "add_item",
     description:
