@@ -3150,6 +3150,49 @@ const MCP_TOOLS: McpTool[] = [
     },
   },
   {
+    name: "list_permissions",
+    description:
+      "Report the caller's identity and derived permission flags so the model knows what it can and can't do. Includes family role (owner/member/solo), who else is in the family, and booleans for each mutation surface. Call this first on a fresh session when the user asks what Claude is allowed to do, or when a mutation is refused and you want to explain why.",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_args, ctx) => {
+      const accRow = (await ctx.env.DB.prepare(
+        "SELECT id, name FROM accounts WHERE id = ?",
+      )
+        .bind(ctx.callerAccountId)
+        .first()) as { id: string; name: string } | null;
+      const fam = await getFamilyInfo(ctx.env, ctx.callerAccountId);
+      // Solo and family "owner" can edit appliances + manage the family
+      // roster. Family "member" can only touch items/groups/photos.
+      const role: "owner" | "member" | "solo" = fam.my_role ?? "solo";
+      const canManageAppliances = role !== "member";
+      const canManageFamily = role === "owner";
+      return {
+        account_id: accRow?.id ?? ctx.callerAccountId,
+        account_name: accRow?.name ?? null,
+        family_id: fam.family_id,
+        family_role: fam.my_role, // null for solo accounts
+        family_members: fam.members.map((m) => ({
+          account_id: m.account_id,
+          account_name: m.account_name,
+          role: m.role,
+          joined_at: m.joined_at,
+        })),
+        permissions: {
+          can_view_inventory: true,
+          can_edit_items: true, // Items, groups, quantities, photos, packs.
+          can_edit_groups: true,
+          can_edit_photos: true,
+          can_adjust_quantities: true,
+          can_manage_appliances: canManageAppliances,
+          can_invite_members: canManageFamily,
+          can_remove_members: canManageFamily,
+          can_change_roles: canManageFamily,
+          can_manage_api_tokens: false, // Token-authenticated callers can't mint or revoke tokens.
+        },
+      };
+    },
+  },
+  {
     name: "add_item",
     description:
       "Add a new item to an appliance. Requires tracking (individual or pack), a low_threshold (use 0 to silence alerts), and either quantity+unit or pack_count+pack_label+pack_status.",
