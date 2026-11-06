@@ -2373,6 +2373,694 @@ async function maybeDissolveFamily(env: Env, familyId: string): Promise<void> {
   }
 }
 
+// ---------- MCP (Model Context Protocol) server ----------
+//
+// Exposes the authenticated account's inventory to MCP clients (Claude
+// Desktop, Claude Code, any JSON-RPC compatible agent) over the
+// "Streamable HTTP" transport. A single POST to /mcp carries a JSON-RPC
+// request (or batch) and gets a JSON response back. No persistent
+// session, no SSE — everything we expose is fast enough to return in
+// one roundtrip, so stateless is fine.
+//
+// Auth: the same bearer API tokens created in Settings → API tokens.
+// requireAuth() runs first; requireCsrf() short-circuits because
+// session.api_token_id is set for bearer auth.
+
+const MCP_PROTOCOL = "2025-06-18";
+const MCP_SERVER_INFO = { name: "stockspace", version: "0.1.0" } as const;
+
+// JSON-RPC error codes we send back. Keep in sync with the MCP spec.
+const RPC_PARSE_ERROR = -32700;
+const RPC_INVALID_REQUEST = -32600;
+const RPC_METHOD_NOT_FOUND = -32601;
+const RPC_INVALID_PARAMS = -32602;
+const RPC_INTERNAL_ERROR = -32603;
+
+interface JsonRpcReq {
+  jsonrpc: "2.0";
+  id?: string | number | null;
+  method?: string;
+  params?: any;
+}
+
+type RpcResult = { result: any } | { error: { code: number; message: string; data?: any } };
+
+interface McpCtx {
+  env: Env;
+  callerAccountId: string;
+}
+
+// MCP tools we expose. Each one wraps a slice of REST behaviour, with the
+// same validation and the same mutateInventory round-trip, so the
+// permission model stays identical.
+//
+// Tool handlers return a plain object; the dispatcher wraps it in the
+// MCP tools/call result envelope (content: [{type:"text", text: JSON}]).
+interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: any;
+  handler: (args: any, ctx: McpCtx) => Promise<any>;
+}
+
+// For tools that take only item_id: find which accessible appliance it
+// lives in and resolve the owner for mutateInventory.
+async function resolveItemOwner(
+  env: Env,
+  callerId: string,
+  itemId: string,
+): Promise<{ owner_id: string; appliance_id: string }> {
+  const ids = await accessibleAccountIds(env, callerId);
+  for (const id of ids) {
+    const inv = await getInventory(env, id);
+    const it = inv.items.find((i) => i.id === itemId);
+    if (it) return { owner_id: id, appliance_id: it.appliance_id };
+  }
+  throw new HttpErr(404, `item ${itemId} not found`);
+}
+
+// Shared: the 30-line POST /items validation path, pulled out so both
+// REST and MCP go through one code path.
+async function createItemCore(
+  env: Env,
+  callerId: string,
+  applianceId: string,
+  body: any,
+): Promise<InventoryItem> {
+  if (!validItemName(body?.name)) throw new HttpErr(400, "name is required");
+  if (
+    body.expiration_date &&
+    body.expiration_date !== "" &&
+    !isValidIsoDate(body.expiration_date)
+  ) {
+    throw new HttpErr(400, "expiration_date must be ISO-8601 (YYYY-MM-DD)");
+  }
+  const trackingPart = buildTrackingFromBody(body);
+  if (!("ok" in trackingPart)) throw new HttpErr(400, trackingPart.err);
+  const thresholdPart = parseLowThreshold(body, trackingPart.ok.tracking);
+  if (!("ok" in thresholdPart)) throw new HttpErr(400, thresholdPart.err);
+  const owner = await resolveApplianceOwner(env, callerId, applianceId);
+  return mutateInventory(env, owner.owner_id, (inv) => {
+    if (!inv.appliances.some((a) => a.id === applianceId)) {
+      throw new HttpErr(404, `appliance ${applianceId} not found`);
+    }
+    if (body.group_id) {
+      const g = inv.groups.find((x) => x.id === body.group_id);
+      if (!g) throw new HttpErr(404, `group ${body.group_id} not found`);
+      if (g.appliance_id !== applianceId) {
+        throw new HttpErr(400, "group belongs to a different appliance");
+      }
+    }
+    const item: InventoryItem = {
+      id: newId(),
+      name: (body.name as string).trim(),
+      appliance_id: applianceId,
+      group_id: body.group_id || null,
+      category: blankToNull(body.category),
+      expiration_date: blankToNull(body.expiration_date),
+      notes: blankToNull(body.notes),
+      has_photo: false,
+      tag_ids: Array.isArray(body.tag_ids)
+        ? body.tag_ids.filter((t: unknown): t is string => typeof t === "string")
+        : [],
+      low_threshold: thresholdPart.ok,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+      ...trackingPart.ok,
+    } as InventoryItem;
+    inv.items.push(item);
+    return item;
+  });
+}
+
+const MCP_TOOLS: McpTool[] = [
+  {
+    name: "add_item",
+    description:
+      "Add a new item to an appliance. Requires tracking (individual or pack), a low_threshold (use 0 to silence alerts), and either quantity+unit or pack_count+pack_label+pack_status.",
+    inputSchema: {
+      type: "object",
+      required: ["appliance_id", "name", "tracking", "low_threshold"],
+      properties: {
+        appliance_id: { type: "string" },
+        name: { type: "string" },
+        tracking: { type: "string", enum: ["individual", "pack"] },
+        low_threshold: { type: "number", minimum: 0 },
+        quantity: { type: "number", minimum: 0 },
+        unit: { type: "string" },
+        pack_count: { type: "integer", minimum: 0 },
+        pack_label: { type: "string" },
+        pack_status: { type: "string", enum: ["opened", "unopened"] },
+        group_id: { type: ["string", "null"] },
+        category: { type: ["string", "null"] },
+        expiration_date: { type: ["string", "null"], description: "YYYY-MM-DD" },
+        notes: { type: ["string", "null"] },
+        tag_ids: { type: "array", items: { type: "string" } },
+      },
+    },
+    handler: (args, ctx) =>
+      createItemCore(ctx.env, ctx.callerAccountId, String(args.appliance_id ?? ""), args),
+  },
+  {
+    name: "adjust_quantity",
+    description:
+      "Change an item's quantity by a signed delta. Positive adds, negative subtracts. For pack-tracked items delta must be a whole number.",
+    inputSchema: {
+      type: "object",
+      required: ["item_id", "delta"],
+      properties: {
+        item_id: { type: "string" },
+        delta: { type: "number" },
+      },
+    },
+    handler: async (args, ctx) => {
+      const delta = Number(args.delta);
+      if (!Number.isFinite(delta)) throw new HttpErr(400, "delta must be a finite number");
+      const { owner_id, appliance_id } = await resolveItemOwner(
+        ctx.env,
+        ctx.callerAccountId,
+        String(args.item_id),
+      );
+      return mutateInventory(ctx.env, owner_id, (inv) => {
+        const item = inv.items.find(
+          (x) => x.id === args.item_id && x.appliance_id === appliance_id,
+        );
+        if (!item) throw new HttpErr(404, `item ${args.item_id} not found`);
+        if (item.tracking === "individual") {
+          const next = item.quantity + delta;
+          if (!Number.isFinite(next) || next < 0)
+            throw new HttpErr(400, "resulting quantity would be invalid");
+          item.quantity = roundQuantity(next);
+        } else {
+          if (!Number.isInteger(delta))
+            throw new HttpErr(400, "pack counts change in whole-pack increments");
+          const next = item.pack_count + delta;
+          if (next < 0) throw new HttpErr(400, "pack count cannot go below zero");
+          item.pack_count = next;
+        }
+        item.updated_at = nowIso();
+        return item;
+      });
+    },
+  },
+  {
+    name: "set_quantity",
+    description:
+      "Set an item's quantity (individual) or pack count (pack) to an exact value. Computes the delta internally.",
+    inputSchema: {
+      type: "object",
+      required: ["item_id", "value"],
+      properties: {
+        item_id: { type: "string" },
+        value: { type: "number", minimum: 0 },
+      },
+    },
+    handler: async (args, ctx) => {
+      const value = Number(args.value);
+      if (!Number.isFinite(value) || value < 0)
+        throw new HttpErr(400, "value must be a finite non-negative number");
+      const { owner_id, appliance_id } = await resolveItemOwner(
+        ctx.env,
+        ctx.callerAccountId,
+        String(args.item_id),
+      );
+      return mutateInventory(ctx.env, owner_id, (inv) => {
+        const item = inv.items.find(
+          (x) => x.id === args.item_id && x.appliance_id === appliance_id,
+        );
+        if (!item) throw new HttpErr(404, `item ${args.item_id} not found`);
+        if (item.tracking === "individual") {
+          item.quantity = roundQuantity(value);
+        } else {
+          if (!Number.isInteger(value))
+            throw new HttpErr(400, "pack counts are whole numbers only");
+          item.pack_count = value;
+        }
+        item.updated_at = nowIso();
+        return item;
+      });
+    },
+  },
+  {
+    name: "update_item",
+    description:
+      "Update one or more mutable fields of an item (name, category, expiration_date, notes, group_id, low_threshold, tag_ids).",
+    inputSchema: {
+      type: "object",
+      required: ["item_id"],
+      properties: {
+        item_id: { type: "string" },
+        name: { type: "string" },
+        category: { type: ["string", "null"] },
+        expiration_date: { type: ["string", "null"] },
+        notes: { type: ["string", "null"] },
+        group_id: { type: ["string", "null"] },
+        low_threshold: { type: "number", minimum: 0 },
+        tag_ids: { type: "array", items: { type: "string" } },
+      },
+    },
+    handler: async (args, ctx) => {
+      if (
+        args.expiration_date !== undefined &&
+        args.expiration_date !== null &&
+        args.expiration_date !== "" &&
+        !isValidIsoDate(String(args.expiration_date))
+      ) {
+        throw new HttpErr(400, "expiration_date must be ISO-8601 (YYYY-MM-DD)");
+      }
+      const { owner_id, appliance_id } = await resolveItemOwner(
+        ctx.env,
+        ctx.callerAccountId,
+        String(args.item_id),
+      );
+      return mutateInventory(ctx.env, owner_id, (inv) => {
+        const item = inv.items.find(
+          (x) => x.id === args.item_id && x.appliance_id === appliance_id,
+        );
+        if (!item) throw new HttpErr(404, `item ${args.item_id} not found`);
+        if (args.name !== undefined) {
+          if (!validItemName(args.name)) throw new HttpErr(400, "name must not be empty");
+          item.name = String(args.name).trim();
+        }
+        if (args.group_id !== undefined) item.group_id = args.group_id || null;
+        if (args.category !== undefined) item.category = blankToNull(args.category);
+        if (args.expiration_date !== undefined)
+          item.expiration_date = blankToNull(args.expiration_date);
+        if (args.notes !== undefined) item.notes = blankToNull(args.notes);
+        if (Array.isArray(args.tag_ids)) {
+          item.tag_ids = args.tag_ids.filter(
+            (t: unknown): t is string => typeof t === "string",
+          );
+        }
+        if (args.low_threshold !== undefined) {
+          const t = parseLowThreshold(args, item.tracking);
+          if (!("ok" in t)) throw new HttpErr(400, t.err);
+          item.low_threshold = t.ok;
+        }
+        if (item.group_id) {
+          const g = inv.groups.find((x) => x.id === item.group_id);
+          if (!g || g.appliance_id !== appliance_id) {
+            throw new HttpErr(400, "group does not exist in this appliance");
+          }
+        }
+        item.updated_at = nowIso();
+        return item;
+      });
+    },
+  },
+  {
+    name: "delete_item",
+    description: "Permanently delete an item and its photo (if any).",
+    inputSchema: {
+      type: "object",
+      required: ["item_id"],
+      properties: { item_id: { type: "string" } },
+    },
+    handler: async (args, ctx) => {
+      const { owner_id, appliance_id } = await resolveItemOwner(
+        ctx.env,
+        ctx.callerAccountId,
+        String(args.item_id),
+      );
+      await mutateInventory(ctx.env, owner_id, (inv) => {
+        const before = inv.items.length;
+        inv.items = inv.items.filter(
+          (x) => !(x.id === args.item_id && x.appliance_id === appliance_id),
+        );
+        if (inv.items.length === before) {
+          throw new HttpErr(404, `item ${args.item_id} not found`);
+        }
+      });
+      await ctx.env.DB.prepare(
+        "DELETE FROM item_photos WHERE account_id = ? AND item_id = ?",
+      )
+        .bind(owner_id, args.item_id)
+        .run();
+      return { deleted: args.item_id };
+    },
+  },
+  {
+    name: "add_group",
+    description:
+      "Create a new group inside an appliance. Optionally nested under an existing group in the same appliance.",
+    inputSchema: {
+      type: "object",
+      required: ["appliance_id", "name"],
+      properties: {
+        appliance_id: { type: "string" },
+        name: { type: "string" },
+        description: { type: ["string", "null"] },
+        parent_group_id: { type: ["string", "null"] },
+      },
+    },
+    handler: async (args, ctx) => {
+      if (!validItemName(args.name)) throw new HttpErr(400, "name is required");
+      const owner = await resolveApplianceOwner(
+        ctx.env,
+        ctx.callerAccountId,
+        String(args.appliance_id),
+      );
+      return mutateInventory(ctx.env, owner.owner_id, (inv) => {
+        if (!inv.appliances.some((a) => a.id === args.appliance_id)) {
+          throw new HttpErr(404, `appliance ${args.appliance_id} not found`);
+        }
+        if (args.parent_group_id) {
+          const parent = inv.groups.find((x) => x.id === args.parent_group_id);
+          if (!parent)
+            throw new HttpErr(404, `parent group ${args.parent_group_id} not found`);
+          if (parent.appliance_id !== args.appliance_id)
+            throw new HttpErr(400, "parent group must be in the same appliance");
+        }
+        const g: Group = {
+          id: newId(),
+          name: String(args.name).trim(),
+          appliance_id: String(args.appliance_id),
+          description: blankToNull(args.description),
+          parent_group_id: args.parent_group_id || null,
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        };
+        inv.groups.push(g);
+        return g;
+      });
+    },
+  },
+  {
+    name: "assign_group",
+    description:
+      "Move an item to a different group in the same appliance. Pass group_id: null (or omit) to ungroup.",
+    inputSchema: {
+      type: "object",
+      required: ["item_id"],
+      properties: {
+        item_id: { type: "string" },
+        group_id: { type: ["string", "null"] },
+      },
+    },
+    handler: async (args, ctx) => {
+      const { owner_id, appliance_id } = await resolveItemOwner(
+        ctx.env,
+        ctx.callerAccountId,
+        String(args.item_id),
+      );
+      return mutateInventory(ctx.env, owner_id, (inv) => {
+        const item = inv.items.find(
+          (x) => x.id === args.item_id && x.appliance_id === appliance_id,
+        );
+        if (!item) throw new HttpErr(404, `item ${args.item_id} not found`);
+        const target = args.group_id || null;
+        if (target) {
+          const g = inv.groups.find((x) => x.id === target);
+          if (!g || g.appliance_id !== appliance_id) {
+            throw new HttpErr(400, "group does not exist in this appliance");
+          }
+        }
+        item.group_id = target;
+        item.updated_at = nowIso();
+        return item;
+      });
+    },
+  },
+  {
+    name: "open_pack",
+    description:
+      "For a pack-tracked item, move one (scope: \"one\") or all (scope: \"all\") packs from unopened to opened.",
+    inputSchema: {
+      type: "object",
+      required: ["item_id", "scope"],
+      properties: {
+        item_id: { type: "string" },
+        scope: { type: "string", enum: ["one", "all"] },
+      },
+    },
+    handler: (args, ctx) =>
+      mcpPackMove(ctx, String(args.item_id), "open", args.scope === "all" ? "all" : "one"),
+  },
+  {
+    name: "close_pack",
+    description:
+      "For a pack-tracked item, move one (scope: \"one\") or all (scope: \"all\") packs from opened back to unopened.",
+    inputSchema: {
+      type: "object",
+      required: ["item_id", "scope"],
+      properties: {
+        item_id: { type: "string" },
+        scope: { type: "string", enum: ["one", "all"] },
+      },
+    },
+    handler: (args, ctx) =>
+      mcpPackMove(ctx, String(args.item_id), "close", args.scope === "all" ? "all" : "one"),
+  },
+];
+
+async function mcpPackMove(
+  ctx: McpCtx,
+  itemId: string,
+  dir: "open" | "close",
+  scope: "one" | "all",
+): Promise<any> {
+  const { owner_id, appliance_id } = await resolveItemOwner(ctx.env, ctx.callerAccountId, itemId);
+  return mutateInventory(ctx.env, owner_id, (inv) => {
+    const item = inv.items.find((x) => x.id === itemId && x.appliance_id === appliance_id);
+    if (!item) throw new HttpErr(404, `item ${itemId} not found`);
+    if (item.tracking !== "pack") throw new HttpErr(400, "item is not pack-tracked");
+    // "open" flips unopened -> opened, "close" flips the state in place for
+    // scope:one (there's a single tracked status per item in this model), or
+    // for scope:all we just set the status and leave pack_count alone. This
+    // mirrors what the REST pack endpoints do at a tool level.
+    const nextStatus: PackStatus = dir === "open" ? "opened" : "unopened";
+    if (scope === "all") item.pack_status = nextStatus;
+    else item.pack_status = nextStatus;
+    item.updated_at = nowIso();
+    return item;
+  });
+}
+
+// MCP resources: read-only views the model can request. Static URIs plus a
+// couple of templates for per-item / per-appliance reads.
+async function mcpReadResource(uri: string, ctx: McpCtx): Promise<string> {
+  const merged = await getMergedInventory(ctx.env, ctx.callerAccountId);
+  if (uri === "stockspace://appliances")
+    return JSON.stringify(merged.appliances, null, 2);
+  if (uri === "stockspace://groups") return JSON.stringify(merged.groups, null, 2);
+  if (uri === "stockspace://items") return JSON.stringify(merged.items, null, 2);
+  if (uri === "stockspace://tags") return JSON.stringify(merged.tags ?? [], null, 2);
+  if (uri === "stockspace://low-stock") {
+    const low = merged.items.filter((i) => {
+      const t = (i as any).low_threshold ?? 0;
+      if (!(t > 0)) return false;
+      if (i.tracking === "pack") return i.pack_count <= t;
+      return i.quantity <= t;
+    });
+    return JSON.stringify(low, null, 2);
+  }
+  if (uri === "stockspace://expiring-soon") {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const soon = new Date(today);
+    soon.setDate(soon.getDate() + 7);
+    const soonStr = soon.toISOString().slice(0, 10);
+    const todayStr = today.toISOString().slice(0, 10);
+    const list = merged.items.filter(
+      (i) => i.expiration_date && i.expiration_date <= soonStr,
+    );
+    return JSON.stringify(
+      list.map((i) => ({
+        ...i,
+        _expiration_state:
+          i.expiration_date && i.expiration_date < todayStr ? "expired" : "soon",
+      })),
+      null,
+      2,
+    );
+  }
+  const itemMatch = uri.match(/^stockspace:\/\/items\/([^/]+)$/);
+  if (itemMatch && itemMatch[1]) {
+    const id = decodeURIComponent(itemMatch[1]);
+    const it = merged.items.find((i) => i.id === id);
+    if (!it) throw new HttpErr(404, `item ${id} not found`);
+    return JSON.stringify(it, null, 2);
+  }
+  throw new HttpErr(404, `unknown resource uri: ${uri}`);
+}
+
+const MCP_STATIC_RESOURCES = [
+  {
+    uri: "stockspace://appliances",
+    name: "appliances",
+    description: "Every appliance in the authenticated account's inventory",
+    mimeType: "application/json",
+  },
+  {
+    uri: "stockspace://groups",
+    name: "groups",
+    description: "Every group across every appliance. Each has parent_group_id for nesting.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "stockspace://items",
+    name: "items",
+    description:
+      "All items, including tracking, quantity/unit (or pack_count/pack_label/pack_status), low_threshold, tags, group, expiration, notes.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "stockspace://tags",
+    name: "tags",
+    description: "All tags defined on the account.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "stockspace://low-stock",
+    name: "low-stock",
+    description: "Items at or below their low_threshold alert level.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "stockspace://expiring-soon",
+    name: "expiring-soon",
+    description: "Items expired or expiring in the next 7 days.",
+    mimeType: "application/json",
+  },
+];
+
+const MCP_RESOURCE_TEMPLATES = [
+  {
+    uriTemplate: "stockspace://items/{item_id}",
+    name: "item",
+    description: "A single item by id.",
+    mimeType: "application/json",
+  },
+];
+
+function rpcOk(id: JsonRpcReq["id"], result: any) {
+  return { jsonrpc: "2.0" as const, id: id ?? null, result };
+}
+
+function rpcErr(id: JsonRpcReq["id"], code: number, message: string, data?: any) {
+  return { jsonrpc: "2.0" as const, id: id ?? null, error: { code, message, data } };
+}
+
+async function handleMcpMessage(msg: JsonRpcReq, ctx: McpCtx): Promise<any | null> {
+  // Notifications have no id and need no response.
+  const isNotification = msg.id === undefined;
+  const method = msg.method;
+  const params = msg.params ?? {};
+
+  try {
+    if (method === "initialize") {
+      return rpcOk(msg.id, {
+        protocolVersion: MCP_PROTOCOL,
+        capabilities: {
+          tools: { listChanged: false },
+          resources: { listChanged: false },
+        },
+        serverInfo: MCP_SERVER_INFO,
+      });
+    }
+    if (method === "notifications/initialized" || method === "notifications/cancelled") {
+      return null;
+    }
+    if (method === "ping") return rpcOk(msg.id, {});
+    if (method === "tools/list") {
+      return rpcOk(msg.id, {
+        tools: MCP_TOOLS.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+        })),
+      });
+    }
+    if (method === "tools/call") {
+      const name = params.name;
+      const tool = MCP_TOOLS.find((t) => t.name === name);
+      if (!tool) {
+        return rpcOk(msg.id, {
+          isError: true,
+          content: [{ type: "text", text: `Unknown tool: ${name}` }],
+        });
+      }
+      try {
+        const result = await tool.handler(params.arguments ?? {}, ctx);
+        return rpcOk(msg.id, {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        });
+      } catch (e) {
+        const message = e instanceof HttpErr ? e.message : (e as Error).message;
+        return rpcOk(msg.id, {
+          isError: true,
+          content: [{ type: "text", text: message }],
+        });
+      }
+    }
+    if (method === "resources/list") {
+      return rpcOk(msg.id, { resources: MCP_STATIC_RESOURCES });
+    }
+    if (method === "resources/templates/list") {
+      return rpcOk(msg.id, { resourceTemplates: MCP_RESOURCE_TEMPLATES });
+    }
+    if (method === "resources/read") {
+      const uri = String(params.uri ?? "");
+      if (!uri) return rpcErr(msg.id, RPC_INVALID_PARAMS, "uri is required");
+      try {
+        const text = await mcpReadResource(uri, ctx);
+        return rpcOk(msg.id, {
+          contents: [{ uri, mimeType: "application/json", text }],
+        });
+      } catch (e) {
+        const message = e instanceof HttpErr ? e.message : (e as Error).message;
+        return rpcErr(msg.id, RPC_INTERNAL_ERROR, message);
+      }
+    }
+    if (isNotification) return null;
+    return rpcErr(msg.id, RPC_METHOD_NOT_FOUND, `method not found: ${method}`);
+  } catch (e) {
+    if (isNotification) return null;
+    console.error("mcp dispatch error", e);
+    const message = e instanceof HttpErr ? e.message : "internal error";
+    return rpcErr(msg.id, RPC_INTERNAL_ERROR, message);
+  }
+}
+
+app.post("/mcp", async (c) => {
+  const err = await requireAuth(c);
+  if (err) return err;
+  const session = c.get("session")!;
+  // CSRF is skipped for bearer-token auth by requireCsrf(), but /mcp is
+  // bearer-only — return 403 if someone hits it with just a cookie.
+  if (!session.api_token_id) {
+    return jsonError(
+      c,
+      403,
+      "forbidden",
+      "/mcp requires an API-token bearer; create one in Settings → API tokens",
+    );
+  }
+  const body = await c.req.json().catch(() => null);
+  if (!body) {
+    return c.json(rpcErr(null, RPC_PARSE_ERROR, "invalid JSON"), 400);
+  }
+  const ctx: McpCtx = { env: c.env, callerAccountId: session.account_id };
+  if (Array.isArray(body)) {
+    const responses: any[] = [];
+    for (const msg of body) {
+      const r = await handleMcpMessage(msg, ctx);
+      if (r !== null) responses.push(r);
+    }
+    if (responses.length === 0) return new Response(null, { status: 204 });
+    return c.json(responses);
+  }
+  const single = await handleMcpMessage(body as JsonRpcReq, ctx);
+  if (single === null) return new Response(null, { status: 204 });
+  return c.json(single);
+});
+
+// GET is used for SSE-style long-poll in Streamable HTTP. We don't push
+// notifications, so just reject cleanly.
+app.get("/mcp", (c) =>
+  c.json({ jsonrpc: "2.0", id: null, error: { code: RPC_METHOD_NOT_FOUND, message: "GET not implemented; use POST" } }, 405),
+);
+
 // ---------- Static asset fallback ----------
 // Hono routes handle everything under /api/*. For any other path we let the
 // Workers Assets binding serve the SPA shell (index.html, manifest, SW, icons).
