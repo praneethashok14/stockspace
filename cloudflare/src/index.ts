@@ -999,69 +999,93 @@ app.delete("/api/appliances/:id", async (c) => {
   const session = c.get("session")!;
   const csrfErr = requireCsrf(c, session);
   if (csrfErr) return csrfErr;
-  const id = c.req.param("id");
-  const strategy = c.req.query("strategy") ?? "";
-  const moveTo = c.req.query("move_to") ?? "";
   try {
-    const fam = await getFamilyInfo(c.env, session.account_id);
-    assertOwnerIfInFamily(fam);
-    const owner = await resolveApplianceOwner(c.env, session.account_id, id);
-    // move_to must belong to the same owner — we don't support cross-owner
-    // transfers of appliance contents in v1.
-    if (strategy === "move" && moveTo) {
-      const destOwner = await resolveApplianceOwner(c.env, session.account_id, moveTo);
-      if (destOwner.owner_id !== owner.owner_id) {
-        return jsonError(
-          c,
-          400,
-          "bad_request",
-          "move target must belong to the same family member as the appliance being deleted",
-        );
-      }
-    }
-    await mutateInventory(c.env, owner.owner_id, (inv) => {
-      if (!inv.appliances.some((a) => a.id === id)) {
-        throw new HttpErr(404, `appliance ${id} not found`);
-      }
-      const hasContents =
-        inv.items.some((i) => i.appliance_id === id) ||
-        inv.groups.some((g) => g.appliance_id === id);
-      if (hasContents && strategy !== "cascade" && strategy !== "move") {
-        throw new HttpErr(
-          409,
-          "appliance has contents; specify strategy=cascade or strategy=move&move_to=<id>",
-        );
-      }
-      if (strategy === "move") {
-        if (!moveTo) throw new HttpErr(400, "move_to is required");
-        if (moveTo === id)
-          throw new HttpErr(400, "cannot move contents to the appliance being deleted");
-        if (!inv.appliances.some((a) => a.id === moveTo)) {
-          throw new HttpErr(404, `target appliance ${moveTo} not found`);
-        }
-        for (const item of inv.items) {
-          if (item.appliance_id === id) {
-            item.appliance_id = moveTo;
-            item.updated_at = nowIso();
-          }
-        }
-        for (const group of inv.groups) {
-          if (group.appliance_id === id) {
-            group.appliance_id = moveTo;
-            group.updated_at = nowIso();
-          }
-        }
-      } else if (strategy === "cascade") {
-        inv.items = inv.items.filter((i) => i.appliance_id !== id);
-        inv.groups = inv.groups.filter((g) => g.appliance_id !== id);
-      }
-      inv.appliances = inv.appliances.filter((a) => a.id !== id);
-    });
+    await deleteApplianceCore(
+      c.env,
+      session.account_id,
+      c.req.param("id"),
+      c.req.query("strategy") ?? "",
+      c.req.query("move_to") ?? "",
+    );
     return c.body(null, 204);
   } catch (e) {
     return httpErrorResponse(c, e);
   }
 });
+
+async function deleteApplianceCore(
+  env: Env,
+  callerId: string,
+  id: string,
+  strategy: string,
+  moveTo: string,
+): Promise<{ deleted: string; removed_items: number; moved_items: number }> {
+  assertOwnerIfInFamily(await getFamilyInfo(env, callerId));
+  const owner = await resolveApplianceOwner(env, callerId, id);
+  // No cross-owner transfers of appliance contents in v1.
+  if (strategy === "move" && moveTo) {
+    const destOwner = await resolveApplianceOwner(env, callerId, moveTo);
+    if (destOwner.owner_id !== owner.owner_id) {
+      throw new HttpErr(
+        400,
+        "move target must belong to the same family member as the appliance being deleted",
+      );
+    }
+  }
+  let removedIds: string[] = [];
+  let movedCount = 0;
+  await mutateInventory(env, owner.owner_id, (inv) => {
+    if (!inv.appliances.some((a) => a.id === id)) {
+      throw new HttpErr(404, `appliance ${id} not found`);
+    }
+    const hasContents =
+      inv.items.some((i) => i.appliance_id === id) ||
+      inv.groups.some((g) => g.appliance_id === id);
+    if (hasContents && strategy !== "cascade" && strategy !== "move") {
+      throw new HttpErr(
+        409,
+        "appliance has contents; specify strategy=cascade or strategy=move&move_to=<id>",
+      );
+    }
+    if (strategy === "move") {
+      if (!moveTo) throw new HttpErr(400, "move_to is required");
+      if (moveTo === id)
+        throw new HttpErr(400, "cannot move contents to the appliance being deleted");
+      if (!inv.appliances.some((a) => a.id === moveTo)) {
+        throw new HttpErr(404, `target appliance ${moveTo} not found`);
+      }
+      for (const item of inv.items) {
+        if (item.appliance_id === id) {
+          item.appliance_id = moveTo;
+          item.updated_at = nowIso();
+          movedCount++;
+        }
+      }
+      for (const group of inv.groups) {
+        if (group.appliance_id === id) {
+          group.appliance_id = moveTo;
+          group.updated_at = nowIso();
+        }
+      }
+    } else if (strategy === "cascade") {
+      removedIds = inv.items.filter((i) => i.appliance_id === id).map((i) => i.id);
+      inv.items = inv.items.filter((i) => i.appliance_id !== id);
+      inv.groups = inv.groups.filter((g) => g.appliance_id !== id);
+    }
+    inv.appliances = inv.appliances.filter((a) => a.id !== id);
+  });
+  if (removedIds.length) {
+    await env.DB.batch(
+      removedIds.map((itemId) =>
+        env.DB.prepare("DELETE FROM item_photos WHERE account_id = ? AND item_id = ?").bind(
+          owner.owner_id,
+          itemId,
+        ),
+      ),
+    );
+  }
+  return { deleted: id, removed_items: removedIds.length, moved_items: movedCount };
+}
 
 // ---------- Routes: items ----------
 
@@ -3396,6 +3420,28 @@ const MCP_TOOLS: McpTool[] = [
         .run();
       return { deleted: args.item_id };
     },
+  },
+  {
+    name: "delete_appliance",
+    description:
+      "Permanently delete an appliance. If it has groups or items you must pass strategy: 'cascade' (delete them and their photos too) or 'move' with move_to (another appliance id to move them into). Family owners only. Confirm with the user before cascading.",
+    inputSchema: {
+      type: "object",
+      required: ["appliance_id"],
+      properties: {
+        appliance_id: { type: "string" },
+        strategy: { type: "string", enum: ["cascade", "move"] },
+        move_to: { type: "string", description: "Target appliance id when strategy is 'move'" },
+      },
+    },
+    handler: async (args, ctx) =>
+      deleteApplianceCore(
+        ctx.env,
+        ctx.callerAccountId,
+        String(args.appliance_id),
+        args.strategy ? String(args.strategy) : "",
+        args.move_to ? String(args.move_to) : "",
+      ),
   },
   {
     name: "add_appliance",
