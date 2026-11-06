@@ -160,6 +160,17 @@ def _async_register_services(hass: HomeAssistant) -> None:
             body["pack_label"] = str(data["pack_label"])
             body["pack_status"] = data.get("pack_status", "unopened")
 
+        if "low_threshold" not in data:
+            raise ServiceValidationError(
+                "low_threshold is required (use 0 to silence the alert)"
+            )
+        low = float(data["low_threshold"])
+        if low < 0 or (data["tracking"] == "pack" and low != int(low)):
+            raise ServiceValidationError(
+                "low_threshold must be non-negative; pack tracking requires a whole number"
+            )
+        body["low_threshold"] = int(low) if data["tracking"] == "pack" else low
+
         group_entity = data.get("group_entity")
         if group_entity:
             group_coord, group_app_id, group_id = _resolve_group_entity(hass, group_entity)
@@ -269,6 +280,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 vol.Required("device_id"): str,
                 vol.Required("name"): str,
                 vol.Required("tracking"): vol.In(["individual", "pack"]),
+                vol.Required("low_threshold"): vol.Coerce(float),
                 vol.Optional("quantity"): vol.Coerce(float),
                 vol.Optional("unit"): str,
                 vol.Optional("pack_count"): vol.Coerce(int),

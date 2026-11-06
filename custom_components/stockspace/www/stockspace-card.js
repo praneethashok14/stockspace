@@ -136,6 +136,10 @@ const STYLES = `
     color: var(--secondary-text-color);
   }
   .pack-badge.opened { background: var(--warning-color, #c80); color: #fff; }
+  .item-low {
+    border-color: var(--warning-color, #c80);
+    box-shadow: 0 0 0 1px var(--warning-color, #c80) inset;
+  }
 `;
 
 class StockSpaceCard extends HTMLElement {
@@ -179,6 +183,8 @@ class StockSpaceCard extends HTMLElement {
         pack_status: attrs.pack_status || null,
         expiration_date: attrs.expiration_date || null,
         category: attrs.category || null,
+        low_threshold: typeof attrs.low_threshold === "number" ? attrs.low_threshold : null,
+        is_low: !!attrs.is_low,
         state: stObj.state,
         unit: attrs.unit_of_measurement || "",
       });
@@ -215,7 +221,7 @@ class StockSpaceCard extends HTMLElement {
       parts.push(appId + ":" + data.applianceNames.get(appId));
       for (const it of list) {
         parts.push(
-          [it.entity_id, it.state, it.unit, it.expiration_date, it.pack_status].join("|"),
+          [it.entity_id, it.state, it.unit, it.expiration_date, it.pack_status, it.is_low ? "1" : "0"].join("|"),
         );
       }
     }
@@ -269,10 +275,13 @@ class StockSpaceCard extends HTMLElement {
             item.tracking === "pack" && item.pack_status
               ? `<span class="pack-badge ${item.pack_status === "opened" ? "opened" : ""}">${item.pack_status}</span>`
               : "";
+          const lowBadge = item.is_low
+            ? `<span class="pack-badge opened" title="At or below the alert threshold">low</span>`
+            : "";
 
           html.push(
-            `<div class="item">`,
-            `<div class="name">${escapeHtml(item.name)}${packBadge}</div>`,
+            `<div class="item${item.is_low ? " item-low" : ""}">`,
+            `<div class="name">${escapeHtml(item.name)}${packBadge}${lowBadge}</div>`,
             `<div class="${metaCls}">${metaText}</div>`,
             `<div class="controls">`,
             `<button data-action="dec" data-entity="${escapeAttr(item.entity_id)}" data-tracking="${item.tracking}" title="Decrement">−</button>`,
@@ -373,6 +382,17 @@ class StockSpaceCard extends HTMLElement {
         payload.pack_label = label;
         payload.pack_status = "unopened";
       }
+      const threshStr = window.prompt(
+        "Alert when at or below (0 to silence):",
+        trackingChoice === "pack" ? "1" : "0",
+      );
+      if (threshStr == null) return;
+      const thresh = Number(threshStr);
+      if (!Number.isFinite(thresh) || thresh < 0) {
+        this._toast("Alert threshold must be a non-negative number");
+        return;
+      }
+      payload.low_threshold = trackingChoice === "pack" ? Math.floor(thresh) : thresh;
       try {
         await hass.callService("stockspace", "add_item", payload);
       } catch (err) {

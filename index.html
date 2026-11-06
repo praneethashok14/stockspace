@@ -1433,6 +1433,18 @@
       return "ok";
     }
 
+    // Low-quantity alert: true when the item's current count is at or below
+    // its user-set threshold. Threshold of 0 (or missing on a legacy item)
+    // silences the alert. For packs we compare whole-number pack_count; for
+    // individual we compare decimal quantity.
+    function itemIsLow(item) {
+      if (!item) return false;
+      const t = typeof item.low_threshold === "number" ? item.low_threshold : 0;
+      if (!(t > 0)) return false;
+      if (item.tracking === "pack") return (item.pack_count ?? 0) <= t;
+      return (item.quantity ?? 0) <= t;
+    }
+
     // ---------- state ----------
 
     const state = {
@@ -1483,6 +1495,7 @@
       dashboardLayout: (function () {
         const DEFAULT = [
           { id: "stats", visible: true },
+          { id: "lowstock", visible: true },
           { id: "expiring", visible: true },
           { id: "appliances", visible: true },
         ];
@@ -2420,6 +2433,26 @@
             statCard({
               label: "Expiring ≤ 7 d", value: totals.soon, kind: "warning", iconName: "clock", tone: "yellow",
             }),
+            statCard({
+              label: "Running low", value: totals.low, kind: totals.low > 0 ? "warning" : "", iconName: "warn", tone: "yellow",
+            }),
+          ]);
+        },
+      },
+      lowstock: {
+        title: "Running low",
+        render: () => {
+          if (state.appliances.length === 0) return null;
+          const lows = state.items.filter(itemIsLow)
+            .sort((a, b) => a.name.localeCompare(b.name));
+          if (lows.length === 0) return null;
+          const list = newItemsContainer();
+          for (const i of lows.slice(0, 20)) {
+            list.appendChild(renderInventoryItem(i, { showAppliance: true }));
+          }
+          return h("section", { class: "card stack", "aria-labelledby": "low-h" }, [
+            h("h2", { id: "low-h", style: "margin-top:0", text: "Running low" }),
+            list,
           ]);
         },
       },
@@ -2818,6 +2851,7 @@
               onClick: () => {
                 state.dashboardLayout = [
                   { id: "stats", visible: true },
+                  { id: "lowstock", visible: true },
                   { id: "expiring", visible: true },
                   { id: "appliances", visible: true },
                 ];
@@ -3035,13 +3069,14 @@
     }
 
     function computeTotals() {
-      let expired = 0, soon = 0;
+      let expired = 0, soon = 0, low = 0;
       for (const i of state.items) {
         const s = expirationState(i.expiration_date);
         if (s === "expired") expired++;
         else if (s === "soon") soon++;
+        if (itemIsLow(i)) low++;
       }
-      return { expired, soon };
+      return { expired, soon, low };
     }
 
     // ---------- appliances ----------
@@ -3616,6 +3651,13 @@
                      : "Exp " + formatDate(item.expiration_date);
         metaChildren.push(h("span", { class: cls, text: label }));
       }
+      if (itemIsLow(item)) {
+        metaChildren.push(h("span", {
+          class: "pill warning",
+          title: "At or below your alert threshold of " + formatNumber(item.low_threshold),
+          text: "Low stock",
+        }));
+      }
 
       // Quantity + controls
       const minusLabel = item.tracking === "individual" ? "Decrease quantity" : "Decrease pack count";
@@ -3729,6 +3771,9 @@
           pills.push(h("span", { class: "pill warning", text: "Expires " + formatDate(item.expiration_date) }));
         }
       }
+      if (itemIsLow(item)) {
+        pills.push(h("span", { class: "pill warning", text: "Low" }));
+      }
       const thumb = item.has_photo
         ? h("img", {
             src: "/api/appliances/" + encodeURIComponent(item.appliance_id) +
@@ -3812,6 +3857,9 @@
         } else if (st === "soon") {
           pills.push(h("span", { class: "pill warning", text: "Expires " + formatDate(item.expiration_date) }));
         }
+      }
+      if (itemIsLow(item)) {
+        pills.push(h("span", { class: "pill warning", text: "Low stock" }));
       }
       if (state.familyId && item.owner_account_name && item.owner_account_id !== state.accountId) {
         pills.push(h("span", { class: "pill accent", text: item.owner_account_name }));
@@ -4110,6 +4158,10 @@
         category: existing?.category || "",
         notes: existing?.notes || "",
         tag_ids: Array.isArray(existing?.tag_ids) ? [...existing.tag_ids] : [],
+        // Low-quantity alert threshold. Compared against quantity (individual)
+        // or pack_count (pack). Required on save. Legacy items without a
+        // stored value get 0 (never alerts) so editing can keep its value.
+        low_threshold: typeof existing?.low_threshold === "number" ? existing.low_threshold : 0,
       };
       const err = h("div", { class: "muted", role: "alert" });
 
@@ -4252,6 +4304,15 @@
                 onInput: (e) => { data.unit = e.target.value; } }),
             ]),
           ]));
+          trackingFields.appendChild(h("label", {}, [
+            "Alert at or below",
+            h("input", {
+              type: "number", step: "0.0001", min: "0", required: true,
+              value: String(data.low_threshold),
+              placeholder: "e.g. 1 — use 0 to silence the alert",
+              onInput: (e) => { data.low_threshold = parseFloat(e.target.value) || 0; },
+            }),
+          ]));
         } else {
           trackingFields.appendChild(h("div", { class: "row" }, [
             h("label", { style: "flex:1" }, ["Pack count",
@@ -4266,6 +4327,15 @@
               selectEl([["unopened", "Unopened"], ["opened", "Opened"]],
                 data.pack_status, (v) => { data.pack_status = v; }),
             ]),
+          ]));
+          trackingFields.appendChild(h("label", {}, [
+            "Alert at or below (packs)",
+            h("input", {
+              type: "number", step: "1", min: "0", required: true,
+              value: String(data.low_threshold),
+              placeholder: "e.g. 1 — use 0 to silence the alert",
+              onInput: (e) => { data.low_threshold = Math.max(0, parseInt(e.target.value || "0", 10)); },
+            }),
           ]));
         }
       }
@@ -4293,6 +4363,7 @@
                     expiration_date: data.expiration_date || null,
                     notes: data.notes || null,
                     tag_ids: data.tag_ids,
+                    low_threshold: data.low_threshold,
                   };
                   if (existing.tracking === "individual") patch.unit = data.unit;
                   if (existing.tracking === "pack") patch.pack_label = data.pack_label;
@@ -4314,6 +4385,7 @@
                     expiration_date: data.expiration_date || null,
                     notes: data.notes || null,
                     tag_ids: data.tag_ids,
+                    low_threshold: data.low_threshold,
                   };
                   if (data.tracking === "individual") {
                     Object.assign(body, { tracking: "individual", quantity: data.quantity, unit: data.unit });

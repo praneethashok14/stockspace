@@ -57,6 +57,12 @@ interface InventoryItemBase {
   notes?: string | null;
   has_photo?: boolean;
   tag_ids?: string[];
+  // Threshold at or below which the item is flagged "running low". For
+  // individual tracking it compares against quantity (decimal allowed),
+  // for pack tracking it compares against pack_count (whole number).
+  // Required on create. Legacy items missing this field are treated as 0
+  // (no alert ever fires) until they're edited.
+  low_threshold: number;
   created_at: string;
   updated_at: string;
 }
@@ -1078,6 +1084,10 @@ app.post("/api/appliances/:id/items", async (c) => {
   if (!("ok" in trackingPart)) {
     return jsonError(c, 400, "bad_request", trackingPart.err);
   }
+  const thresholdPart = parseLowThreshold(body, trackingPart.ok.tracking);
+  if (!("ok" in thresholdPart)) {
+    return jsonError(c, 400, "bad_request", thresholdPart.err);
+  }
   try {
     const owner = await resolveApplianceOwner(c.env, session.account_id, applianceId);
     const created = await mutateInventory(c.env, owner.owner_id, (inv) => {
@@ -1103,6 +1113,7 @@ app.post("/api/appliances/:id/items", async (c) => {
         tag_ids: Array.isArray(body.tag_ids)
           ? body.tag_ids.filter((t: unknown): t is string => typeof t === "string")
           : [],
+        low_threshold: thresholdPart.ok,
         created_at: nowIso(),
         updated_at: nowIso(),
         ...trackingPart.ok,
@@ -1194,6 +1205,11 @@ app.patch("/api/appliances/:id/items/:item_id", async (c) => {
         if (!validItemName(body.pack_label))
           throw new HttpErr(400, "pack_label must not be empty");
         item.pack_label = body.pack_label.trim();
+      }
+      if (body.low_threshold !== undefined) {
+        const t = parseLowThreshold(body, item.tracking);
+        if (!("ok" in t)) throw new HttpErr(400, t.err);
+        item.low_threshold = t.ok;
       }
       if (item.group_id) {
         const g = inv.groups.find((x) => x.id === item.group_id);
@@ -1662,6 +1678,26 @@ app.get("/api/items", async (c) => {
 });
 
 // ---------- Tracking input helper ----------
+
+// Threshold is a non-negative finite number. Pack tracking additionally
+// requires it to be a whole-number pack count (it would be meaningless
+// to alert at 1.5 packs). Individual tracking allows decimals.
+function parseLowThreshold(
+  body: any,
+  tracking: "individual" | "pack",
+): { ok: number } | { err: string } {
+  if (body.low_threshold === undefined || body.low_threshold === null || body.low_threshold === "") {
+    return { err: "low_threshold is required" };
+  }
+  const n = Number(body.low_threshold);
+  if (!Number.isFinite(n) || n < 0) {
+    return { err: "low_threshold must be a finite non-negative number" };
+  }
+  if (tracking === "pack" && !Number.isInteger(n)) {
+    return { err: "low_threshold for pack-tracked items must be a whole number" };
+  }
+  return { ok: tracking === "individual" ? roundQuantity(n) : n };
+}
 
 function buildTrackingFromBody(
   body: any,

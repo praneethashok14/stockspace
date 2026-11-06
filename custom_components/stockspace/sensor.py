@@ -27,6 +27,24 @@ from .coordinator import StockSpaceCoordinator
 EXPIRING_SOON_DAYS = 7
 
 
+def _item_is_low(item: dict[str, Any]) -> bool:
+    """True when the item's current count is at or below its alert threshold.
+
+    Threshold of 0 (or missing on a legacy item) silences the alert.
+    Pack-tracked items compare against pack_count; individual items against
+    quantity.
+    """
+    try:
+        threshold = float(item.get("low_threshold") or 0)
+    except (TypeError, ValueError):
+        return False
+    if threshold <= 0:
+        return False
+    if item.get("tracking") == "pack":
+        return float(item.get("pack_count") or 0) <= threshold
+    return float(item.get("quantity") or 0) <= threshold
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -41,7 +59,7 @@ async def async_setup_entry(
         data = coordinator.data or {}
         for appliance in data.get("appliances", []):
             app_id = appliance["id"]
-            for metric in ("total", "expiring", "expired", "open_packs"):
+            for metric in ("total", "expiring", "expired", "open_packs", "low_stock"):
                 uid = f"{entry.entry_id}:app:{app_id}:{metric}"
                 if uid in known:
                     continue
@@ -112,6 +130,7 @@ class ApplianceMetricSensor(_Base):
         "expiring": "Expiring soon",
         "expired": "Expired",
         "open_packs": "Open packs",
+        "low_stock": "Running low",
     }
 
     def __init__(
@@ -160,6 +179,8 @@ class ApplianceMetricSensor(_Base):
                 for i in items
                 if i.get("tracking") == "pack" and i.get("pack_status") == "opened"
             )
+        if self._metric == "low_stock":
+            return sum(1 for i in items if _item_is_low(i))
         return 0
 
 
@@ -264,6 +285,9 @@ class ItemQuantitySensor(_Base):
             attrs["pack_status"] = item.get("pack_status")
         if item.get("category"):
             attrs["category"] = item["category"]
+        if "low_threshold" in item:
+            attrs["low_threshold"] = item["low_threshold"]
+        attrs["is_low"] = _item_is_low(item)
         return attrs
 
     @property

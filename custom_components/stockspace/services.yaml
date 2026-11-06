@@ -65,6 +65,17 @@ add_item:
           options:
             - unopened
             - opened
+    low_threshold:
+      name: Low-stock alert at or below
+      description: Required. Fires the "running low" alert when quantity (individual) or pack_count (pack) drops to this value or lower. Use 0 to silence.
+      required: true
+      default: 0
+      example: 1
+      selector:
+        number:
+          min: 0
+          step: 0.1
+          mode: box
     group_entity:
       name: Group (optional)
       description: Group sensor to place the item in. Leave empty for ungrouped.
