@@ -200,10 +200,14 @@
     /* JS adds this briefly after a rail drag so the release eases back. */
     .liquid-press { transition: transform 160ms var(--ease) !important; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
+    /* Primary keeps the glass shine: accent gradient, top highlight and
+       an accent glow. All derived from --accent, so presets recolour it. */
     button.primary {
-      background: var(--accent);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 15%), var(--accent));
       color: var(--accent-text);
-      border-color: transparent;
+      border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+      box-shadow: var(--glass-highlight-soft),
+                  0 8px 22px -10px color-mix(in srgb, var(--accent) 70%, transparent);
     }
     button.ghost, button.danger,
     header.app button, .rail button, .sidebar .sb-item, .primary-nav button {
@@ -212,9 +216,35 @@
       box-shadow: none;
     }
     button.primary:hover:not(:disabled) {
-      background: color-mix(in oklab, var(--accent) 90%, black);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 15%), var(--accent));
+      filter: brightness(1.06);
       color: var(--accent-text);
+      border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+    }
+    .segmented {
+      display: inline-flex;
+      gap: 2px;
+      padding: 2px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+    .segmented button {
+      min-height: 32px;
+      padding: 0 12px;
+      border-radius: 6px;
       border-color: transparent;
+      background: transparent;
+      color: var(--text-2);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      box-shadow: none;
+    }
+    .segmented button[aria-pressed="true"] {
+      background: var(--surface);
+      color: var(--text);
+      border-color: var(--glass-border);
+      box-shadow: var(--glass-highlight-soft), 0 1px 2px rgba(0, 0, 0, 0.08);
     }
     button.danger {
       background: transparent;
@@ -509,8 +539,10 @@
       color: var(--chrome-text);
     }
     header.app button.primary {
-      background: var(--accent);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 15%), var(--accent));
       color: var(--accent-text);
+      box-shadow: var(--glass-highlight-soft),
+                  0 8px 22px -10px color-mix(in srgb, var(--accent) 70%, transparent);
     }
     header.app .pill {
       background: var(--chrome-hover);
@@ -657,9 +689,11 @@
       margin-top: 2px;
     }
     .sidebar .sb-add {
-      background: var(--accent);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 15%), var(--accent));
       color: var(--accent-text);
-      border: 1px solid transparent;
+      border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+      box-shadow: var(--glass-highlight-soft),
+                  0 8px 22px -10px color-mix(in srgb, var(--accent) 70%, transparent);
       border-radius: var(--radius-sm);
       padding: 0 12px;
       min-height: 36px;
@@ -668,7 +702,8 @@
       margin-top: 8px;
     }
     .sidebar .sb-add:hover:not(:disabled) {
-      background: color-mix(in oklab, var(--accent) 90%, black);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 15%), var(--accent));
+      filter: brightness(1.06);
       color: var(--accent-text);
     }
     .sidebar-backdrop {
@@ -1568,6 +1603,7 @@
           bgLight: null, bgDark: null,
           bgImageLight: null, bgImageDark: null,
           accent: null,
+          bgStyle: "gradient",
         };
         try {
           const raw = localStorage.getItem("stockspace_custom_theme");
@@ -1581,6 +1617,7 @@
             bgImageLight: typeof p.bgImageLight === "string" ? p.bgImageLight : null,
             bgImageDark: typeof p.bgImageDark === "string" ? p.bgImageDark : null,
             accent: typeof p.accent === "string" ? p.accent : null,
+            bgStyle: p.bgStyle === "flat" ? "flat" : "gradient",
           };
         } catch (_) {
           return empty;
@@ -2152,7 +2189,13 @@
       const scheme = effectiveColorScheme();
       const t = state.customTheme;
       const chrome = scheme === "dark" ? t.chromeDark : t.chromeLight;
-      const bg = scheme === "dark" ? t.bgDark : t.bgLight;
+      let bg = scheme === "dark" ? t.bgDark : t.bgLight;
+      if (t.bgStyle === "flat") {
+        // Presets (and the default ambient) have a matching flat tint; a
+        // custom hex background is already flat and is left alone.
+        const preset = presetForBg(bg, scheme);
+        if (preset) bg = scheme === "dark" ? preset.flatDark : preset.flatLight;
+      }
       const bgImage = scheme === "dark" ? t.bgImageDark : t.bgImageLight;
       const root = document.documentElement;
       if (chrome) {
@@ -2163,7 +2206,8 @@
         root.style.removeProperty("--chrome");
         root.style.removeProperty("--chrome-text");
       }
-      // Solid-color background override; replaces the ambient gradient when set.
+      // Background override (preset gradient, flat tint or custom hex);
+      // replaces the ambient gradient when set.
       if (bg) {
         root.style.setProperty("--bg-ambient", bg);
       } else {
@@ -2234,6 +2278,7 @@
           bgLight: t.bgLight || null,
           bgDark: t.bgDark || null,
           accent: t.accent || null,
+          bgStyle: t.bgStyle === "flat" ? "flat" : "gradient",
         },
       };
     }
@@ -2293,6 +2338,7 @@
         state.customTheme.bgLight = typeof ct.bgLight === "string" ? ct.bgLight : null;
         state.customTheme.bgDark = typeof ct.bgDark === "string" ? ct.bgDark : null;
         state.customTheme.accent = typeof ct.accent === "string" ? ct.accent : null;
+        state.customTheme.bgStyle = ct.bgStyle === "flat" ? "flat" : "gradient";
         try { localStorage.setItem("stockspace_custom_theme", JSON.stringify(state.customTheme)); } catch (_) {}
       }
       applyCustomTheme();
@@ -5101,29 +5147,41 @@
     const BG_PRESETS = [
       { id: "ambient",   label: "Ambient (default)",
         bgLight: null, bgDark: null,
+        flatLight: "#f2eff0", flatDark: "#0b0e19",
         chromeLight: null, chromeDark: null,
         accent: null },
       { id: "sunset",    label: "Sunset glow",
         bgLight: "radial-gradient(at 20% 10%, #ffd9b0 0%, transparent 55%),radial-gradient(at 80% 90%, #ffb199 0%, transparent 55%),linear-gradient(180deg,#fff2e4 0%,#f3dcd1 100%)",
         bgDark:  "radial-gradient(at 20% 10%, #c05a1a 0%, transparent 55%),radial-gradient(at 80% 90%, #3a1744 0%, transparent 55%),linear-gradient(180deg,#120a14 0%,#07040a 100%)",
+        flatLight: "#fbe8da", flatDark: "#160c10",
         chromeLight: "#f5c4a9", chromeDark: "#3a1f17",
         accent: "#ff6a1a" },
       { id: "ocean",     label: "Deep ocean",
         bgLight: "radial-gradient(at 20% 10%, #bfe0ff 0%, transparent 55%),radial-gradient(at 80% 90%, #b4f0d7 0%, transparent 55%),linear-gradient(180deg,#eef6ff 0%,#dde9f5 100%)",
         bgDark:  "radial-gradient(at 20% 10%, #1b4f8b 0%, transparent 55%),radial-gradient(at 80% 90%, #103a56 0%, transparent 55%),linear-gradient(180deg,#06111f 0%,#030a14 100%)",
+        flatLight: "#e6f1fb", flatDark: "#071423",
         chromeLight: "#c7dfea", chromeDark: "#0a1f2e",
         accent: "#2b84ff" },
       { id: "forest",    label: "Forest",
         bgLight: "radial-gradient(at 20% 10%, #d7ecc8 0%, transparent 55%),radial-gradient(at 80% 90%, #c5ddc6 0%, transparent 55%),linear-gradient(180deg,#eef5e8 0%,#dde7d2 100%)",
         bgDark:  "radial-gradient(at 20% 10%, #15402a 0%, transparent 55%),radial-gradient(at 80% 90%, #1b2d1d 0%, transparent 55%),linear-gradient(180deg,#0a120d 0%,#040806 100%)",
+        flatLight: "#e7f0e0", flatDark: "#0b150f",
         chromeLight: "#c8d9c2", chromeDark: "#13261d",
         accent: "#2fb361" },
       { id: "mono",      label: "Minimal mono",
         bgLight: "linear-gradient(180deg,#f6f7fb 0%,#e8ebf2 100%)",
         bgDark:  "linear-gradient(180deg,#111319 0%,#060709 100%)",
+        flatLight: "#eff1f6", flatDark: "#0d0f13",
         chromeLight: "#e8ebf2", chromeDark: "#111317",
         accent: "#64748b" },
     ];
+
+    // The preset whose gradient is stored as `bg` (null bg = the default
+    // ambient preset), or undefined for a custom colour.
+    function presetForBg(bg, scheme) {
+      if (!bg) return BG_PRESETS[0];
+      return BG_PRESETS.find(p => (scheme === "dark" ? p.bgDark : p.bgLight) === bg);
+    }
 
     function renderAppearanceSection() {
       const t = state.customTheme;
@@ -5138,7 +5196,10 @@
         style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:0.6rem",
       });
       for (const preset of BG_PRESETS) {
-        const sample = preset.id === "ambient"
+        const flat = t.bgStyle === "flat";
+        const sample = flat
+          ? (scheme === "dark" ? preset.flatDark : preset.flatLight)
+          : preset.id === "ambient"
           ? (scheme === "dark"
               ? "radial-gradient(at 18% 12%, rgba(255,160,80,0.42), transparent 55%),radial-gradient(at 85% 88%, rgba(140,100,255,0.42), transparent 50%),linear-gradient(180deg,#0a0d18,#060810)"
               : "radial-gradient(at 18% 10%, rgba(255,210,160,0.7), transparent 55%),radial-gradient(at 85% 88%, rgba(190,210,255,0.6), transparent 50%),linear-gradient(180deg,#f4f2ee,#eceef5)")
@@ -5176,6 +5237,23 @@
         ]);
         presetGrid.appendChild(tile);
       }
+
+      // Background style: the preset's gradient or its flat tint.
+      const styleToggle = h("div", { class: "row", style: "gap:12px;justify-content:space-between" }, [
+        h("span", { style: "font-size:14px;font-weight:500", text: "Background style" }),
+        h("div", { class: "segmented", role: "group", "aria-label": "Background style" },
+          ["gradient", "flat"].map(style => h("button", {
+            type: "button",
+            "aria-pressed": String((t.bgStyle === "flat" ? "flat" : "gradient") === style),
+            onClick: () => {
+              state.customTheme.bgStyle = style;
+              saveCustomTheme();
+              applyCustomTheme();
+              render();
+            },
+            text: style === "flat" ? "Flat" : "Gradient",
+          }))),
+      ]);
 
       // Image upload picker
       const bgImage = scheme === "dark" ? t.bgImageDark : t.bgImageLight;
@@ -5245,6 +5323,7 @@
         h("h3", { style: "margin-top:0", text: "Appearance" }),
         h("p", { class: "muted", text: "The whole app sits on a background that shows through the glass surfaces. Pick a preset, upload your own image, or set custom colours." }),
         presetGrid,
+        styleToggle,
         h("div", { style: "border-top:1px solid var(--border);padding-top:0.75rem" }, [
           h("h4", { style: "margin:0.2rem 0 0.4rem", text: "Custom image" }),
           h("p", { class: "muted", style: "margin:0 0 0.5rem;font-size:0.85rem",
@@ -5282,6 +5361,7 @@
                 bgLight: null, bgDark: null,
                 bgImageLight: null, bgImageDark: null,
                 accent: null,
+                bgStyle: "gradient",
               };
               saveCustomTheme();
               applyCustomTheme();
