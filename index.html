@@ -29,11 +29,20 @@
       --font-display: "Bricolage Grotesque", var(--font);
       --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-      /* Page background. Users can swap it in Settings; see --bg-image. */
-      --bg-ambient: #f5f6f8;
-      --surface: #ffffff;
-      --surface-2: #eef0f3;
-      --surface-hover: #f3f4f6;
+      /* Ambient background: a layered gradient the glass surfaces sit on.
+         Users can swap it in Settings; see --bg-image. */
+      --bg-ambient:
+        radial-gradient(at 18% 10%, oklch(92% 0.09 55 / 0.70), transparent 55%),
+        radial-gradient(at 85% 88%, oklch(90% 0.08 265 / 0.60), transparent 50%),
+        linear-gradient(180deg, #f4f2ee 0%, #eceef5 100%);
+      --surface: rgba(255, 255, 255, 0.62);
+      --surface-2: rgba(17, 24, 44, 0.05);
+      --surface-hover: rgba(255, 255, 255, 0.85);
+      --glass-border: rgba(255, 255, 255, 0.6);
+      --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      --glass-highlight-soft: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      --shadow: 0 10px 36px -16px rgba(16, 24, 40, 0.32), 0 2px 6px -2px rgba(16, 24, 40, 0.16);
+      --shadow-lg: 0 24px 60px -24px rgba(16, 24, 40, 0.42), 0 6px 18px -8px rgba(16, 24, 40, 0.22);
       --text: #15171c;
       --text-2: #4c5361;
       --muted: #6b7280;
@@ -58,16 +67,32 @@
       --radius: 12px;
       --radius-lg: 16px;
 
-      --shadow: 0 1px 2px rgba(15, 17, 22, 0.05);
-      --shadow-lg: 0 8px 24px rgba(15, 17, 22, 0.08), 0 1px 2px rgba(15, 17, 22, 0.05);
+      /* Glass FX (Apple Liquid Glass) */
+      --glass-blur: 28px;
+      --glass-sat: 1.65;
+      --glass-displace: url(#liquidGlass);
+      --glass-displace-soft: url(#liquidGlassSoft);
+      /* Chromatic rim: faint magenta left, cyan right, like the refraction
+         at the edge of Apple's material. */
+      --glass-chroma:
+        inset 1.5px 0 0 rgba(255, 90, 170, 0.14),
+        inset -1.5px 0 0 rgba(90, 170, 255, 0.14);
       --ease: cubic-bezier(0.22, 1, 0.36, 1);
     }
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
-        --bg-ambient: #111317;
-        --surface: #171a1f;
-        --surface-2: #1f232a;
-        --surface-hover: #1c2026;
+        --bg-ambient:
+          radial-gradient(at 18% 12%, oklch(55% 0.15 55 / 0.42), transparent 55%),
+          radial-gradient(at 85% 88%, oklch(45% 0.17 285 / 0.42), transparent 50%),
+          linear-gradient(180deg, #0a0d18 0%, #060810 100%);
+        --surface: rgba(255, 255, 255, 0.06);
+        --surface-2: rgba(255, 255, 255, 0.06);
+        --surface-hover: rgba(255, 255, 255, 0.12);
+        --glass-border: rgba(255, 255, 255, 0.12);
+        --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+        --glass-highlight-soft: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        --shadow: 0 10px 40px -16px rgba(0, 0, 0, 0.6), 0 4px 12px -4px rgba(0, 0, 0, 0.45);
+        --shadow-lg: 0 24px 60px -24px rgba(0, 0, 0, 0.75), 0 8px 20px -8px rgba(0, 0, 0, 0.55);
         --text: #eceef2;
         --text-2: #a6acb8;
         --muted: #8a909c;
@@ -80,8 +105,6 @@
         --success: #5cc98a; --success-bg: color-mix(in srgb, #5cc98a 12%, transparent);
         --label-bg: #2a2823;
         --label-text: #e3dccb;
-        --shadow: none;
-        --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.45);
       }
     }
     html[data-theme="light"] {
@@ -89,10 +112,18 @@
     }
     html[data-theme="dark"] {
       color-scheme: dark;
-      --bg-ambient: #111317;
-      --surface: #171a1f;
-      --surface-2: #1f232a;
-      --surface-hover: #1c2026;
+      --bg-ambient:
+        radial-gradient(at 18% 12%, oklch(55% 0.15 55 / 0.42), transparent 55%),
+        radial-gradient(at 85% 88%, oklch(45% 0.17 285 / 0.42), transparent 50%),
+        linear-gradient(180deg, #0a0d18 0%, #060810 100%);
+      --surface: rgba(255, 255, 255, 0.06);
+      --surface-2: rgba(255, 255, 255, 0.06);
+      --surface-hover: rgba(255, 255, 255, 0.12);
+      --glass-border: rgba(255, 255, 255, 0.12);
+      --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+      --glass-highlight-soft: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      --shadow: 0 10px 40px -16px rgba(0, 0, 0, 0.6), 0 4px 12px -4px rgba(0, 0, 0, 0.45);
+      --shadow-lg: 0 24px 60px -24px rgba(0, 0, 0, 0.75), 0 8px 20px -8px rgba(0, 0, 0, 0.55);
       --text: #eceef2;
       --text-2: #a6acb8;
       --muted: #8a909c;
@@ -105,8 +136,6 @@
       --success: #5cc98a; --success-bg: color-mix(in srgb, #5cc98a 12%, transparent);
       --label-bg: #2a2823;
       --label-text: #e3dccb;
-      --shadow: none;
-      --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.45);
     }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
@@ -145,11 +174,14 @@
       font-weight: 500;
       cursor: pointer;
       border-radius: var(--radius-sm);
-      border: 1px solid var(--border-strong);
+      border: 1px solid var(--glass-border);
       background: var(--surface);
       color: var(--text);
       padding: 0 12px;
       min-height: 36px;
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      box-shadow: var(--glass-highlight-soft);
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
       transform-origin: center;
@@ -172,6 +204,12 @@
       background: var(--accent);
       color: var(--accent-text);
       border-color: transparent;
+    }
+    button.ghost, button.danger,
+    header.app button, .rail button, .sidebar .sb-item, .primary-nav button {
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      box-shadow: none;
     }
     button.primary:hover:not(:disabled) {
       background: color-mix(in oklab, var(--accent) 90%, black);
@@ -213,20 +251,23 @@
       font-size: max(16px, 1rem);
       color: var(--text);
       background: var(--surface);
-      border: 1px solid var(--border-strong);
+      border: 1px solid var(--glass-border);
       border-radius: var(--radius-sm);
       padding: 8px 12px;
       min-height: 40px;
       width: 100%;
       -webkit-appearance: none;
       appearance: none;
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      box-shadow: var(--glass-highlight-soft);
       transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease);
     }
     input::placeholder, textarea::placeholder { color: var(--muted); }
     input:focus, select:focus, textarea:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-soft);
+      box-shadow: var(--glass-highlight-soft), 0 0 0 3px var(--accent-soft);
     }
     input[type="radio"], input[type="checkbox"] {
       width: auto;
@@ -240,6 +281,8 @@
       appearance: auto;
       accent-color: var(--accent);
       flex-shrink: 0;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
       box-shadow: none;
     }
     textarea { min-height: 80px; resize: vertical; }
@@ -345,10 +388,12 @@
 
     .card {
       background: var(--surface);
-      border: 1px solid var(--border);
+      border: 1px solid var(--glass-border);
       border-radius: var(--radius);
       padding: 20px;
-      box-shadow: var(--shadow);
+      box-shadow: var(--glass-highlight), var(--glass-chroma), var(--shadow);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) var(--glass-displace-soft);
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
       transition: border-color 150ms var(--ease), background-color 150ms var(--ease);
     }
     .card.interactive:hover:not(:disabled),
@@ -358,24 +403,26 @@
       background: var(--surface-hover);
     }
 
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      :root { --surface: #ffffff; --glass-border: #d9dee9; }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) { --surface: #151b2d; --glass-border: #2a3457; }
+      }
+      html[data-theme="dark"] { --surface: #151b2d; --glass-border: #2a3457; }
+    }
+
     html, body { overflow-x: hidden; }
 
     /* --chrome drives the top bar + rail. It defaults to the card surface;
        users can override it in Settings and applyCustomTheme() picks a
        readable text colour. */
     :root {
-      --chrome: #ffffff;
-      --chrome-text: #15171c;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) { --chrome: #0c0d10; --chrome-text: #eceef2; }
-    }
-    html[data-theme="dark"] { --chrome: #0c0d10; --chrome-text: #eceef2; }
-    :root {
-      --chrome-hover: color-mix(in srgb, var(--chrome-text) 7%, transparent);
-      --chrome-border: color-mix(in srgb, var(--chrome-text) 9%, transparent);
-      --chrome-strong: color-mix(in srgb, var(--chrome-text) 14%, transparent);
-      --chrome-muted: color-mix(in srgb, var(--chrome-text) 62%, transparent);
+      --chrome: #1e2847;
+      --chrome-text: #eceef2;
+      --chrome-hover: color-mix(in srgb, var(--chrome-text) 14%, transparent);
+      --chrome-border: color-mix(in srgb, var(--chrome-text) 22%, transparent);
+      --chrome-strong: color-mix(in srgb, var(--chrome-text) 30%, transparent);
+      --chrome-muted: color-mix(in srgb, var(--chrome-text) 65%, transparent);
     }
     .layout {
       display: grid;
@@ -394,8 +441,10 @@
         max(16px, env(safe-area-inset-right))
         8px
         max(16px, env(safe-area-inset-left));
-      background: var(--chrome);
-      border-bottom: 1px solid var(--chrome-border);
+      background: color-mix(in srgb, var(--chrome) 42%, transparent);
+      backdrop-filter: blur(28px) saturate(1.65) var(--glass-displace);
+      -webkit-backdrop-filter: blur(28px) saturate(1.65);
+      box-shadow: var(--glass-highlight), var(--glass-chroma), 0 10px 32px -24px rgba(0, 0, 0, 0.6);
       color: var(--chrome-text);
       position: sticky;
       top: 0;
@@ -525,7 +574,9 @@
       bottom: 0;
       width: 264px;
       max-width: 85vw;
-      background: var(--chrome);
+      background: color-mix(in srgb, var(--chrome) 48%, transparent);
+      backdrop-filter: blur(30px) saturate(1.5);
+      -webkit-backdrop-filter: blur(30px) saturate(1.5);
       color: var(--chrome-text);
       padding:
         max(12px, env(safe-area-inset-top))
@@ -623,7 +674,9 @@
     .sidebar-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(8, 9, 12, 0.4);
+      background: rgba(5, 7, 14, 0.45);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       z-index: 25;
       opacity: 0;
       pointer-events: none;
@@ -668,8 +721,10 @@
       padding: 12px 16px;
       border-radius: var(--radius);
       background: var(--surface);
-      border: 1px solid var(--border-strong);
-      box-shadow: var(--shadow-lg);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-highlight), var(--shadow);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
       font-size: 14px;
     }
     .toast.error { color: var(--danger); }
@@ -677,7 +732,9 @@
     .dialog-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(8, 9, 12, 0.45);
+      background: rgba(5, 7, 14, 0.55);
+      backdrop-filter: blur(14px) saturate(1.2);
+      -webkit-backdrop-filter: blur(14px) saturate(1.2);
       display: grid;
       place-items: center;
       padding: 16px;
@@ -696,7 +753,10 @@
       max-height: calc(100dvh - 32px);
       overflow-y: auto;
       overscroll-behavior: contain;
-      box-shadow: var(--shadow-lg);
+      border-color: var(--glass-border);
+      box-shadow: var(--glass-highlight), var(--glass-chroma), var(--shadow-lg);
+      backdrop-filter: blur(32px) saturate(1.75) var(--glass-displace);
+      -webkit-backdrop-filter: blur(32px) saturate(1.75);
     }
     .dialog h2 { margin-top: 0; }
     .center-screen {
@@ -715,11 +775,13 @@
 
     /* ---- Inventory groups and rows ---- */
     .inv-group {
-      border: 1px solid var(--border);
+      border: 1px solid var(--glass-border);
       border-radius: var(--radius);
       background: var(--surface);
       overflow: hidden;
-      box-shadow: var(--shadow);
+      box-shadow: var(--glass-highlight), var(--shadow);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     }
     .inv-group summary {
       list-style: none;
@@ -728,7 +790,7 @@
       gap: 8px;
       min-height: 48px;
       padding: 8px 16px;
-      background: var(--surface);
+      background: var(--surface-2);
       border-bottom: 1px solid var(--border);
       cursor: pointer;
       font-weight: 500;
@@ -826,9 +888,11 @@
       justify-content: center;
       gap: 8px;
       min-height: 96px;
-      background: transparent;
+      background: color-mix(in srgb, var(--surface) 55%, transparent);
       border: 1px dashed var(--border-strong);
       border-radius: var(--radius);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
       color: var(--muted);
       cursor: pointer;
       font-weight: 500;
@@ -942,7 +1006,7 @@
       color: inherit;
       min-height: 0;
       border-radius: var(--radius);
-      border-color: var(--border);
+      border-color: var(--glass-border);
       background: var(--surface);
     }
     .dash-stat.danger .big { color: var(--danger); }
@@ -970,9 +1034,11 @@
       min-width: 0;
       cursor: pointer;
       background: var(--surface);
-      border: 1px solid var(--border);
+      border: 1px solid var(--glass-border);
       border-radius: var(--radius);
-      box-shadow: var(--shadow);
+      box-shadow: var(--glass-highlight), var(--shadow);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
       color: var(--text);
       font-weight: 400;
     }
@@ -1070,7 +1136,10 @@
       padding: 4px;
       border-radius: var(--radius);
       background: var(--surface);
-      border: 1px solid var(--border);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-highlight-soft);
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
       max-width: 100%;
       overflow-x: auto;
       scrollbar-width: none;
@@ -1126,9 +1195,11 @@
         8px
         max(12px, env(safe-area-inset-bottom))
         max(8px, env(safe-area-inset-left));
-      background: var(--chrome);
+      background: color-mix(in srgb, var(--chrome) 42%, transparent);
+      backdrop-filter: blur(28px) saturate(1.65) var(--glass-displace);
+      -webkit-backdrop-filter: blur(28px) saturate(1.65);
+      box-shadow: var(--glass-highlight), var(--glass-chroma);
       color: var(--chrome-text);
-      border-right: 1px solid var(--chrome-border);
       z-index: 40;
     }
     @media (min-width: 760px) {
@@ -1173,8 +1244,11 @@
       height: 40px;
       border-radius: var(--radius-sm);
       transform: translate(-50%, 0);
-      background: var(--chrome-hover);
-      border: 1px solid var(--chrome-border);
+      background: color-mix(in srgb, var(--accent) 24%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+      box-shadow: var(--glass-highlight-soft);
+      backdrop-filter: blur(14px) saturate(1.6);
+      -webkit-backdrop-filter: blur(14px) saturate(1.6);
       pointer-events: none;
       z-index: 0;
       opacity: 0;
@@ -1270,6 +1344,36 @@
   </style>
 </head>
 <body>
+  <!--
+    Apple-Liquid-Glass-2025 displacement filter. feTurbulence builds a soft
+    low-frequency noise field and feDisplacementMap uses it to warp whatever
+    is behind the glass by up to ~scale/2 pixels per axis. Chained onto
+    backdrop-filter it produces the signature "looking through a bubble of
+    chilled oil" refraction. Browsers that don't yet support url() inside
+    backdrop-filter (older Firefox) simply ignore it and get the plain blur.
+  -->
+  <svg aria-hidden="true" focusable="false"
+       style="position:fixed;width:0;height:0;pointer-events:none;overflow:hidden"
+       xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="liquidGlass" x="-5%" y="-5%" width="110%" height="110%"
+              color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.016"
+                      numOctaves="2" seed="7" result="turb"/>
+        <feGaussianBlur in="turb" stdDeviation="1.4" result="softTurb"/>
+        <feDisplacementMap in="SourceGraphic" in2="softTurb" scale="48"
+                           xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+      <filter id="liquidGlassSoft" x="-5%" y="-5%" width="110%" height="110%"
+              color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.018 0.022"
+                      numOctaves="2" seed="3" result="turb"/>
+        <feGaussianBlur in="turb" stdDeviation="1" result="softTurb"/>
+        <feDisplacementMap in="SourceGraphic" in2="softTurb" scale="24"
+                           xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
   <div class="layout" id="root">
     <div aria-live="polite" aria-atomic="true" class="sr-only" id="live"></div>
     <!-- header + main injected by render() -->
@@ -2060,7 +2164,7 @@
         root.style.removeProperty("--chrome-text");
       }
       // Solid-color background override; replaces the ambient gradient when set.
-      if (bg && !/gradient\(/.test(bg)) {
+      if (bg) {
         root.style.setProperty("--bg-ambient", bg);
       } else {
         root.style.removeProperty("--bg-ambient");
@@ -4995,26 +5099,30 @@
     // accent colour per scheme, so primary buttons, focus rings and the
     // rail indicator all take the theme's lead instead of staying amber.
     const BG_PRESETS = [
-      { id: "ambient",   label: "Neutral (default)",
+      { id: "ambient",   label: "Ambient (default)",
         bgLight: null, bgDark: null,
         chromeLight: null, chromeDark: null,
         accent: null },
-      { id: "sunset",    label: "Sunset",
-        bgLight: "#f7f3ee", bgDark: "#15120f",
-        chromeLight: "#fdfbf8", chromeDark: "#0f0d0b",
-        accent: "#c4510f" },
-      { id: "ocean",     label: "Ocean",
-        bgLight: "#f1f5f8", bgDark: "#0d1216",
-        chromeLight: "#fafcfd", chromeDark: "#090d10",
-        accent: "#0a6e8a" },
+      { id: "sunset",    label: "Sunset glow",
+        bgLight: "radial-gradient(at 20% 10%, #ffd9b0 0%, transparent 55%),radial-gradient(at 80% 90%, #ffb199 0%, transparent 55%),linear-gradient(180deg,#fff2e4 0%,#f3dcd1 100%)",
+        bgDark:  "radial-gradient(at 20% 10%, #c05a1a 0%, transparent 55%),radial-gradient(at 80% 90%, #3a1744 0%, transparent 55%),linear-gradient(180deg,#120a14 0%,#07040a 100%)",
+        chromeLight: "#f5c4a9", chromeDark: "#3a1f17",
+        accent: "#ff6a1a" },
+      { id: "ocean",     label: "Deep ocean",
+        bgLight: "radial-gradient(at 20% 10%, #bfe0ff 0%, transparent 55%),radial-gradient(at 80% 90%, #b4f0d7 0%, transparent 55%),linear-gradient(180deg,#eef6ff 0%,#dde9f5 100%)",
+        bgDark:  "radial-gradient(at 20% 10%, #1b4f8b 0%, transparent 55%),radial-gradient(at 80% 90%, #103a56 0%, transparent 55%),linear-gradient(180deg,#06111f 0%,#030a14 100%)",
+        chromeLight: "#c7dfea", chromeDark: "#0a1f2e",
+        accent: "#2b84ff" },
       { id: "forest",    label: "Forest",
-        bgLight: "#f3f6f1", bgDark: "#0f130f",
-        chromeLight: "#fafbf9", chromeDark: "#0a0d0a",
-        accent: "#2f7d4a" },
-      { id: "mono",      label: "Mono",
-        bgLight: "#f6f6f6", bgDark: "#121212",
-        chromeLight: "#fdfdfd", chromeDark: "#0d0d0d",
-        accent: "#3f3f46" },
+        bgLight: "radial-gradient(at 20% 10%, #d7ecc8 0%, transparent 55%),radial-gradient(at 80% 90%, #c5ddc6 0%, transparent 55%),linear-gradient(180deg,#eef5e8 0%,#dde7d2 100%)",
+        bgDark:  "radial-gradient(at 20% 10%, #15402a 0%, transparent 55%),radial-gradient(at 80% 90%, #1b2d1d 0%, transparent 55%),linear-gradient(180deg,#0a120d 0%,#040806 100%)",
+        chromeLight: "#c8d9c2", chromeDark: "#13261d",
+        accent: "#2fb361" },
+      { id: "mono",      label: "Minimal mono",
+        bgLight: "linear-gradient(180deg,#f6f7fb 0%,#e8ebf2 100%)",
+        bgDark:  "linear-gradient(180deg,#111319 0%,#060709 100%)",
+        chromeLight: "#e8ebf2", chromeDark: "#111317",
+        accent: "#64748b" },
     ];
 
     function renderAppearanceSection() {
@@ -5031,7 +5139,9 @@
       });
       for (const preset of BG_PRESETS) {
         const sample = preset.id === "ambient"
-          ? (scheme === "dark" ? "#111317" : "#f5f6f8")
+          ? (scheme === "dark"
+              ? "radial-gradient(at 18% 12%, rgba(255,160,80,0.42), transparent 55%),radial-gradient(at 85% 88%, rgba(140,100,255,0.42), transparent 50%),linear-gradient(180deg,#0a0d18,#060810)"
+              : "radial-gradient(at 18% 10%, rgba(255,210,160,0.7), transparent 55%),radial-gradient(at 85% 88%, rgba(190,210,255,0.6), transparent 50%),linear-gradient(180deg,#f4f2ee,#eceef5)")
           : (scheme === "dark" ? preset.bgDark : preset.bgLight);
         const isActive = preset.id === activePreset.id;
         const tile = h("button", {
@@ -5133,7 +5243,7 @@
 
       return h("div", { class: "card stack" }, [
         h("h3", { style: "margin-top:0", text: "Appearance" }),
-        h("p", { class: "muted", text: "Pick a background and accent, upload your own image, or set custom colours." }),
+        h("p", { class: "muted", text: "The whole app sits on a background that shows through the glass surfaces. Pick a preset, upload your own image, or set custom colours." }),
         presetGrid,
         h("div", { style: "border-top:1px solid var(--border);padding-top:0.75rem" }, [
           h("h4", { style: "margin:0.2rem 0 0.4rem", text: "Custom image" }),
