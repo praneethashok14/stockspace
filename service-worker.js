@@ -9,7 +9,7 @@
 // Spec references: README/10-PWA-INSTALLATION.md and
 // README/11-PIN-ACCESS-AND-SECURITY.md.
 
-const CACHE_VERSION = "stockspace-shell-v2.33";
+const CACHE_VERSION = "stockspace-shell-v2.34";
 const SHELL = [
   "/",
   "/index.html",
@@ -64,7 +64,29 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // App shell: cache-first with background refresh for GET navigations.
+  // Page loads and the HTML/manifest: network-first, so a normal reload
+  // always gets the latest deploy. The cache is only an offline fallback.
+  // `cache: "no-cache"` makes the browser revalidate with the server instead
+  // of reusing its own HTTP cache.
+  if (req.mode === "navigate" || /\/(index\.html|manifest\.webmanifest)?$/.test(url.pathname)) {
+    event.respondWith(
+      fetch(req.url, { cache: "no-cache", credentials: "same-origin" })
+        .then((resp) => {
+          if (resp && resp.ok && isCacheable(resp)) {
+            const copy = resp.clone();
+            const key = req.mode === "navigate" ? "/index.html" : req;
+            caches.open(CACHE_VERSION).then((cache) => cache.put(key, copy));
+          }
+          return resp;
+        })
+        .catch(() =>
+          caches.match(req).then((cached) => cached || caches.match("/index.html")),
+        ),
+    );
+    return;
+  }
+
+  // Icons and other static files: cache-first with background refresh.
   event.respondWith(
     caches.match(req).then((cached) => {
       if (cached) {

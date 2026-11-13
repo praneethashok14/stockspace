@@ -3854,10 +3854,20 @@ app.get("/mcp", (c) =>
 // Hono routes handle everything under /api/*. For any other path we let the
 // Workers Assets binding serve the SPA shell (index.html, manifest, SW, icons).
 
+// The page, manifest and service worker must always be revalidated so a
+// plain reload picks up a new deploy; icons can keep the default caching.
+const ALWAYS_REVALIDATE = new Set(["/", "/index.html", "/manifest.webmanifest", "/service-worker.js"]);
+
 app.all("*", async (c) => {
   // SPA fallback: Workers Assets with `not_found_handling = "single-page-application"`
   // already serves index.html for unmatched paths, so we can just delegate.
-  return c.env.ASSETS.fetch(c.req.raw);
+  const resp = await c.env.ASSETS.fetch(c.req.raw);
+  const path = new URL(c.req.url).pathname;
+  const isHtml = (resp.headers.get("content-type") || "").includes("text/html");
+  if (!ALWAYS_REVALIDATE.has(path) && !isHtml) return resp;
+  const out = new Response(resp.body, resp);
+  out.headers.set("cache-control", "no-cache");
+  return out;
 });
 
 export default {

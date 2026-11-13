@@ -5577,9 +5577,34 @@
     boot();
 
     // Register the service worker (PWA shell only; private data is never cached).
+    // The worker loads the page network-first, so reloads get new deploys.
+    // On top of that we check for a new worker whenever the app is opened or
+    // brought back to the foreground (installed PWAs on phones rarely do a
+    // full navigation), and reload once when a new worker takes over so the
+    // page and worker are from the same deploy.
     if ("serviceWorker" in navigator) {
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloadedForUpdate = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        // First install takes control without a reload; only reload when an
+        // existing worker was replaced by a newer one.
+        if (!hadController || reloadedForUpdate) return;
+        // Don't throw away a half-filled form; the next load is fresh anyway.
+        if (document.querySelector(".dialog-backdrop")) return;
+        reloadedForUpdate = true;
+        window.location.reload();
+      });
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+        navigator.serviceWorker
+          .register("/service-worker.js", { updateViaCache: "none" })
+          .then((reg) => {
+            const check = () => reg.update().catch(() => {});
+            document.addEventListener("visibilitychange", () => {
+              if (document.visibilityState === "visible") check();
+            });
+            window.addEventListener("focus", check);
+          })
+          .catch(() => {});
       });
     }
 
